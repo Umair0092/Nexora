@@ -32,19 +32,13 @@ export const login = async (email, password) => {
   }
 }
 
-/**
- * Sends a registration request to the API.
- * @param {string} email - The new user's email.
- * @param {string} password - The new user's password.
- * @returns {Promise<object>} The user data from the API response.
- */
-export const register = async (email, password) => {
+
+export const register = async (fullName, email, password) => {
   try {
     const response = await axios.post(REGISTER_URL, {
-      user: { email, password },
+      user: { full_name: fullName, email, password },
     })
 
-    // Devise often logs in the user upon registration, so we store the token
     const token = response.headers.authorization
     if (token) {
       localStorage.setItem('authToken', token)
@@ -69,7 +63,6 @@ export const logout = async () => {
       },
     })
   } finally {
-    // Always remove the token from local storage, even if the server call fails.
     localStorage.removeItem('authToken')
   }
 }

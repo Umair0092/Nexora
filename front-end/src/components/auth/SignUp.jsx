@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { register } from '../../api/authentication_endpoints'
 
 function SignUp() {
@@ -16,7 +17,7 @@ function SignUp() {
     setSuccessMessage('')
 
     try {
-      const response = await register(email, password)
+      const response = await register(fullName, email, password)
       setSuccessMessage(response.message || 'Sign up successful! You are now logged in.')
     } catch (err) {
       setError(err.message || 'An unexpected error occurred.')
@@ -37,7 +38,7 @@ function SignUp() {
 					<div>
 							<label
 							htmlFor="fullName"
-							className="block mb-2 text-sm font-medium text-gray-300"
+							className="form-label"
 							>
 							Full Name
 							</label>
@@ -46,8 +47,8 @@ function SignUp() {
 							id="fullName"
 							value={fullName}
 							onChange={(e) => setFullName(e.target.value)}
-							placeholder="Usman"
-							className="w-full px-4 py-3 text-white placeholder-gray-500 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent transition-all"
+							placeholder="Name"
+							className="form-input"
 							autoComplete="name"
 							/>
 					</div>
@@ -55,7 +56,7 @@ function SignUp() {
 					<div>
 							<label
 							htmlFor="email"
-							className="block mb-2 text-sm font-medium text-gray-300"
+							className="form-label"
 							>
 							Email
 							</label>
@@ -65,7 +66,7 @@ function SignUp() {
 							value={email}
 							onChange={(e) => setEmail(e.target.value)}
 							placeholder="usman@example.com"
-							className="w-full px-4 py-3 text-white placeholder-gray-500 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent transition-all"
+							className="form-input"
 							autoComplete="email"
 							/>
 					</div>
@@ -73,7 +74,7 @@ function SignUp() {
 					<div>
 							<label
 							htmlFor="password"
-							className="block mb-2 text-sm font-medium text-gray-300"
+							className="form-label"
 							>
 							Password
 							</label>
@@ -83,7 +84,7 @@ function SignUp() {
 							value={password}
 							onChange={(e) => setPassword(e.target.value)}
 							placeholder="••••••••"
-							className="w-full px-4 py-3 text-white placeholder-gray-400 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent transition-all"
+							className="form-input"
 							autoComplete="new-password"
 							/>
 					</div>
@@ -91,7 +92,7 @@ function SignUp() {
 					<button
 							onClick={handleSubmit}
 							disabled={isLoading}
-							className="w-full px-4 py-3 font-semibold text-slate-900 bg-cyan-400 rounded-lg hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+							className="btn-primary"
 					>
 							{isLoading ? 'Creating Account...' : 'Sign Up'}
 					</button>
@@ -106,9 +107,9 @@ function SignUp() {
 
 					<p className="text-sm text-center text-gray-400">
 					Already have an account?{' '}
-					<button className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
+					<Link to="/login" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
 							Sign In
-					</button>
+					</Link>
 					</p>
 			</div>
     </div>
