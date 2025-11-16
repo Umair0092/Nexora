@@ -2,7 +2,7 @@ module RackSessionFix
   extend ActiveSupport::Concern
   class FakeRackSession < Hash
     def enabled?
-      false 
+      false
     end
   end
   included do
