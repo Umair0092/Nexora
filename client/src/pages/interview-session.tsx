@@ -20,6 +20,8 @@ import {
   AlertCircle,
   Clock,
   Loader2,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import type { InterviewSession, Question, Answer } from "@shared/schema";
 
@@ -47,6 +49,7 @@ export default function InterviewSessionPage() {
   const [behaviorStatus, setBehaviorStatus] = useState<"good" | "warning">("good");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const { data: session, isLoading } = useQuery<any>({
     queryKey: ["/api/v1/sessions", params.id],
@@ -184,13 +187,41 @@ export default function InterviewSessionPage() {
     setIsRecording(false);
   }, []);
 
+  const stopSpeaking = useCallback(() => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  }, []);
+
+  const speakQuestion = useCallback((text: string) => {
+    stopSpeaking();
+
+    if (!text) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    // Use a default voice or try to find a Google one if available/preferred
+    // const voices = window.speechSynthesis.getVoices();
+    // const googleVoice = voices.find(v => v.name.includes("Google"));
+    // if (googleVoice) utterance.voice = googleVoice;
+
+    utterance.lang = "en-US"; // Default to English, could be dynamic based on session.language
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  }, [stopSpeaking]);
+
   useEffect(() => {
     startCamera();
     return () => {
       stopCamera();
       stopRecording();
+      stopSpeaking();
     };
-  }, [startCamera, stopCamera, stopRecording]);
+  }, [startCamera, stopCamera, stopRecording, stopSpeaking]);
 
   useEffect(() => {
     if (isCameraOn && !isRecording) {
@@ -224,6 +255,7 @@ export default function InterviewSessionPage() {
 
     setIsSubmitting(true);
     stopRecording();
+    stopSpeaking();
 
     try {
       await submitAnswerMutation.mutateAsync({
@@ -237,6 +269,7 @@ export default function InterviewSessionPage() {
         setTranscript("");
         setElapsedTime(0);
         startRecording();
+        // Option: speakQuestion(session.questions[currentQuestionIndex + 1].text);
       } else {
         await completeSessionMutation.mutateAsync();
       }
@@ -248,6 +281,7 @@ export default function InterviewSessionPage() {
   const handleEndSession = async () => {
     stopRecording();
     stopCamera();
+    stopSpeaking();
 
     if (transcript.trim() && session?.questions?.[currentQuestionIndex]) {
       await submitAnswerMutation.mutateAsync({
@@ -415,9 +449,19 @@ export default function InterviewSessionPage() {
                 <Badge variant="outline" className="mb-4">
                   Question {currentQuestionIndex + 1}
                 </Badge>
-                <h2 className="text-2xl font-semibold mb-6" data-testid="text-current-question">
-                  {currentQuestion?.text || "Loading question..."}
-                </h2>
+                <div className="flex items-start gap-4 mb-6">
+                  <h2 className="text-2xl font-semibold flex-1" data-testid="text-current-question">
+                    {currentQuestion?.text || "Loading question..."}
+                  </h2>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => isSpeaking ? stopSpeaking() : speakQuestion(currentQuestion?.text || "")}
+                    title={isSpeaking ? "Stop reading" : "Read question"}
+                  >
+                    {isSpeaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  </Button>
+                </div>
 
                 <div className="bg-muted/30 rounded-lg p-4 mb-6">
                   <h4 className="text-sm font-medium mb-2">Tips</h4>

@@ -13,6 +13,17 @@ declare module "http" {
   }
 }
 
+
+// Proxy must be set up BEFORE body parsers to handle POST/PUT requests correctly
+import { createProxyMiddleware } from "http-proxy-middleware";
+app.use(
+  "/api/v1",
+  createProxyMiddleware({
+    target: "http://localhost:3000/api/v1",
+    changeOrigin: true,
+  })
+);
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {
