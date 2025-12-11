@@ -1,0 +1,25 @@
+databases:
+  - name: nexora-db
+    databaseName: nexora_production
+    user: nexora
+    plan: free
+    region: frankfurt # Default, can be changed in dashboard
+
+services:
+  - type: web
+    name: nexora-backend
+    runtime: docker
+    rootDir: rails_server
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: RAILS_MASTER_KEY
+        sync: false # You must enter this value in the Render Dashboard
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: RAILS_LOG_TO_STDOUT
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexora-db
+          property: connectionString
