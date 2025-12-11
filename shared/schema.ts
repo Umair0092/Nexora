@@ -33,6 +33,10 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  skills: text("skills").array(),
+  bio: text("bio"),
+  experience: jsonb("experience"),
+  resumeUrl: varchar("resume_url"),
 });
 
 // Interview domains

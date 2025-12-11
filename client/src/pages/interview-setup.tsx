@@ -60,12 +60,12 @@ export default function InterviewSetup() {
   const [selectedLanguage, setSelectedLanguage] = useState("en");
 
   const { data: domains, isLoading: domainsLoading } = useQuery<Domain[]>({
-    queryKey: ["/api/domains"],
+    queryKey: ["/api/v1/domains"],
   });
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/sessions", {
+      const res = await apiRequest("POST", "/api/v1/sessions", {
         domainId: selectedDomain?.id,
         difficulty: selectedDifficulty,
         language: selectedLanguage,
@@ -73,7 +73,7 @@ export default function InterviewSetup() {
       return res.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions"] });
       setLocation(`/interview/session/${data.id}`);
     },
     onError: (error) => {
@@ -135,11 +135,10 @@ export default function InterviewSetup() {
           {steps.map((s, index) => (
             <div key={s} className="flex items-center flex-1">
               <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-colors ${
-                  index <= currentStepIndex
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
-                }`}
+                className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-colors ${index <= currentStepIndex
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+                  }`}
               >
                 {index < currentStepIndex ? (
                   <Check className="w-5 h-5" />
@@ -149,9 +148,8 @@ export default function InterviewSetup() {
               </div>
               {index < steps.length - 1 && (
                 <div
-                  className={`flex-1 h-1 mx-2 rounded transition-colors ${
-                    index < currentStepIndex ? "bg-primary" : "bg-muted"
-                  }`}
+                  className={`flex-1 h-1 mx-2 rounded transition-colors ${index < currentStepIndex ? "bg-primary" : "bg-muted"
+                    }`}
                 />
               )}
             </div>
@@ -187,22 +185,20 @@ export default function InterviewSetup() {
                 return (
                   <Card
                     key={domain.id}
-                    className={`cursor-pointer transition-all ${
-                      isSelected
-                        ? "ring-2 ring-primary border-primary"
-                        : "hover-elevate"
-                    }`}
+                    className={`cursor-pointer transition-all ${isSelected
+                      ? "ring-2 ring-primary border-primary"
+                      : "hover-elevate"
+                      }`}
                     onClick={() => setSelectedDomain(domain)}
                     data-testid={`card-domain-${domain.id}`}
                   >
                     <CardContent className="p-6">
                       <div className="flex items-start gap-4">
                         <div
-                          className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                            isSelected
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-primary/10 text-primary"
-                          }`}
+                          className={`w-12 h-12 rounded-lg flex items-center justify-center ${isSelected
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-primary/10 text-primary"
+                            }`}
                         >
                           <IconComponent className="w-6 h-6" />
                         </div>
@@ -247,11 +243,10 @@ export default function InterviewSetup() {
             {difficulties.map((difficulty) => (
               <Card
                 key={difficulty.id}
-                className={`cursor-pointer transition-all ${
-                  selectedDifficulty === difficulty.id
-                    ? "ring-2 ring-primary border-primary"
-                    : "hover-elevate"
-                }`}
+                className={`cursor-pointer transition-all ${selectedDifficulty === difficulty.id
+                  ? "ring-2 ring-primary border-primary"
+                  : "hover-elevate"
+                  }`}
                 onClick={() => setSelectedDifficulty(difficulty.id)}
                 data-testid={`card-difficulty-${difficulty.id}`}
               >
@@ -285,11 +280,10 @@ export default function InterviewSetup() {
             {languages.map((lang) => (
               <Card
                 key={lang.code}
-                className={`cursor-pointer transition-all ${
-                  selectedLanguage === lang.code
-                    ? "ring-2 ring-primary border-primary"
-                    : "hover-elevate"
-                }`}
+                className={`cursor-pointer transition-all ${selectedLanguage === lang.code
+                  ? "ring-2 ring-primary border-primary"
+                  : "hover-elevate"
+                  }`}
                 onClick={() => setSelectedLanguage(lang.code)}
                 data-testid={`card-language-${lang.code}`}
               >

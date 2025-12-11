@@ -116,7 +116,7 @@ export default function Landing() {
           </nav>
           <div className="flex items-center gap-3 flex-wrap">
             <ThemeToggle />
-            <a href="/api/login" data-testid="button-login">
+            <a href="/auth" data-testid="button-login">
               <Button>
                 Get Started
                 <ArrowRight className="w-4 h-4 ml-1" />
@@ -127,7 +127,7 @@ export default function Landing() {
       </header>
 
       <section className="relative overflow-hidden">
-        <div 
+        <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${heroImage})` }}
         />
@@ -141,11 +141,11 @@ export default function Landing() {
               Redefining Interview Readiness
             </h1>
             <p className="text-lg md:text-xl text-white/80 mb-8 leading-relaxed">
-              Practice domain-specific interviews with real-time verbal and non-verbal feedback. 
+              Practice domain-specific interviews with real-time verbal and non-verbal feedback.
               Get AI-powered evaluation and personalized recommendations to ace your next interview.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-              <a href="/api/login" data-testid="button-hero-cta">
+              <a href="/auth" data-testid="button-hero-cta">
                 <Button size="lg" className="text-base">
                   Start Practicing Free
                   <ArrowRight className="w-5 h-5 ml-2" />
@@ -223,7 +223,7 @@ export default function Landing() {
               <Badge className="mb-4" variant="secondary">Multilingual Support</Badge>
               <h2 className="text-3xl md:text-4xl font-bold mb-6">Practice in Your Preferred Language</h2>
               <p className="text-lg text-muted-foreground mb-8">
-                Our advanced speech-to-text technology supports English, Urdu, French, and Spanish, 
+                Our advanced speech-to-text technology supports English, Urdu, French, and Spanish,
                 enabling candidates from diverse backgrounds to practice effectively.
               </p>
               <div className="grid grid-cols-2 gap-4">
@@ -385,7 +385,7 @@ export default function Landing() {
               <p className="text-lg text-primary-foreground/80 mb-8 max-w-2xl mx-auto">
                 Join thousands of professionals who have improved their interview skills with Nexora.
               </p>
-              <a href="/api/login" data-testid="button-cta-final">
+              <a href="/auth" data-testid="button-cta-final">
                 <Button size="lg" variant="secondary" className="text-base">
                   Get Started Free
                   <ArrowRight className="w-5 h-5 ml-2" />

@@ -33,12 +33,12 @@ export default function InterviewSessionPage() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -48,17 +48,21 @@ export default function InterviewSessionPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
 
-  const { data: session, isLoading } = useQuery<SessionData>({
-    queryKey: ["/api/sessions", params.id],
+  const { data: session, isLoading } = useQuery<any>({
+    queryKey: ["/api/v1/sessions", params.id],
   });
 
   const submitAnswerMutation = useMutation({
-    mutationFn: async (data: { questionId: string; transcript: string; duration: number }) => {
-      const res = await apiRequest("POST", `/api/sessions/${params.id}/answers`, data);
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/v1/sessions/${params.id}/answers`, data);
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sessions", params.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions", params.id] });
+      toast({
+        title: "Answer Saved",
+        description: "Your response has been recorded.",
+      });
     },
     onError: () => {
       toast({
@@ -71,12 +75,12 @@ export default function InterviewSessionPage() {
 
   const completeSessionMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/sessions/${params.id}/complete`, {});
+      const res = await apiRequest("POST", `/api/v1/sessions/${params.id}/complete`, {});
       return res.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
-      setLocation(`/report/${params.id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions"] });
+      setLocation(`/report/${data.session.id}`);
     },
     onError: () => {
       toast({
@@ -89,9 +93,9 @@ export default function InterviewSessionPage() {
 
   const startCamera = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: 640, height: 480 },
-        audio: true 
+        audio: true
       });
       mediaStreamRef.current = stream;
       if (videoRef.current) {
@@ -129,17 +133,17 @@ export default function InterviewSessionPage() {
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
-    
+
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = session?.language === "ur" ? "ur-PK" : 
-                       session?.language === "fr" ? "fr-FR" :
-                       session?.language === "es" ? "es-ES" : "en-US";
+    recognition.lang = session?.language === "ur" ? "ur-PK" :
+      session?.language === "fr" ? "fr-FR" :
+        session?.language === "es" ? "es-ES" : "en-US";
 
     recognition.onresult = (event) => {
       let finalTranscript = "";
       let interimTranscript = "";
-      
+
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -244,7 +248,7 @@ export default function InterviewSessionPage() {
   const handleEndSession = async () => {
     stopRecording();
     stopCamera();
-    
+
     if (transcript.trim() && session?.questions?.[currentQuestionIndex]) {
       await submitAnswerMutation.mutateAsync({
         questionId: session.questions[currentQuestionIndex].id,
@@ -252,7 +256,7 @@ export default function InterviewSessionPage() {
         duration: elapsedTime,
       });
     }
-    
+
     await completeSessionMutation.mutateAsync();
   };
 
@@ -335,7 +339,7 @@ export default function InterviewSessionPage() {
                 playsInline
                 className="w-full h-full object-cover"
               />
-              
+
               {!isCameraOn && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
                   <div className="text-center">
@@ -346,11 +350,10 @@ export default function InterviewSessionPage() {
               )}
 
               <div
-                className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors ${
-                  behaviorStatus === "good"
-                    ? "bg-green-500/90 text-white"
-                    : "bg-red-500/90 text-white animate-pulse"
-                }`}
+                className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors ${behaviorStatus === "good"
+                  ? "bg-green-500/90 text-white"
+                  : "bg-red-500/90 text-white animate-pulse"
+                  }`}
                 data-testid="indicator-behavior"
               >
                 {behaviorStatus === "good" ? (
@@ -466,7 +469,7 @@ export default function InterviewSessionPage() {
 
 declare global {
   interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
   }
 }

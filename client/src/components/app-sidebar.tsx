@@ -43,7 +43,7 @@ const menuItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   const getUserInitials = () => {
     if (!user) return "U";
@@ -103,10 +103,10 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t">
-        <div className="flex items-center gap-3 mb-4">
+        <Link href="/profile" className="flex items-center gap-3 mb-4 hover:bg-muted/50 p-2 rounded-md transition-colors cursor-pointer group">
           <Avatar className="w-10 h-10">
             <AvatarImage src={user?.profileImageUrl || undefined} alt={getUserName()} className="object-cover" />
-            <AvatarFallback className="bg-primary/10 text-primary font-medium">
+            <AvatarFallback className="bg-primary/10 text-primary font-medium group-hover:bg-primary/20">
               {getUserInitials()}
             </AvatarFallback>
           </Avatar>
@@ -114,13 +114,17 @@ export function AppSidebar() {
             <p className="font-medium text-sm truncate" data-testid="text-user-name">{getUserName()}</p>
             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
           </div>
-        </div>
-        <a href="/api/logout" className="w-full" data-testid="button-logout">
+        </Link>
+        <button
+          onClick={() => logout()}
+          className="w-full"
+          data-testid="button-logout"
+        >
           <SidebarMenuButton className="w-full justify-start text-muted-foreground">
             <LogOut className="w-4 h-4" />
             <span>Log Out</span>
           </SidebarMenuButton>
-        </a>
+        </button>
       </SidebarFooter>
     </Sidebar>
   );

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -172,7 +173,11 @@ export default function PerformanceReport() {
   const params = useParams<{ id: string }>();
 
   const { data: report, isLoading } = useQuery<ReportData>({
-    queryKey: ["/api/reports", params.id],
+    queryKey: ["/api/v1/sessions", params.id, "report"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/v1/sessions/${params.id}/report`);
+      return await res.json();
+    }
   });
 
   if (isLoading) {
@@ -204,11 +209,11 @@ export default function PerformanceReport() {
 
   const formattedDate = report.createdAt
     ? new Date(report.createdAt).toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
     : "Unknown date";
 
   return (
@@ -249,7 +254,7 @@ export default function PerformanceReport() {
             <ScoreCircle score={report.overallScore} size="lg" />
             <p className="text-sm text-muted-foreground mt-4">
               {report.overallScore >= 80 ? "Excellent Performance!" :
-               report.overallScore >= 60 ? "Good Performance" : "Needs Improvement"}
+                report.overallScore >= 60 ? "Good Performance" : "Needs Improvement"}
             </p>
           </CardContent>
         </Card>

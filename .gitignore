@@ -1,6 +1,44 @@
-node_modules
-dist
+# General
 .DS_Store
-server/public
-vite.config.ts.*
+Thumbs.db
+*.swp
+.idea
+.vscode
+*.log
+
+# Node / Client
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rails / Server
+rails_server/log/*
+!rails_server/log/.keep
+rails_server/tmp/
+rails_server/storage/*
+!rails_server/storage/.keep
+rails_server/public/assets
+rails_server/public/packs
+rails_server/public/packs-test
+rails_server/node_modules
+rails_server/yarn-error.log
+rails_server/.env
+rails_server/config/master.key
+rails_server/config/credentials.yml.enc
+
+# Bundler
+/.bundle
+/vendor/bundle
+
+# Vite
+vite.config.ts.timestamp-*
 *.tar.gz

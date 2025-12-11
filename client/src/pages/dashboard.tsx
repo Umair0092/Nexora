@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  Play, 
-  Clock, 
-  TrendingUp, 
-  BarChart3, 
+import {
+  Play,
+  Clock,
+  TrendingUp,
+  BarChart3,
   ArrowRight,
   Calendar,
   Target,
@@ -64,12 +64,12 @@ function ScoreCircle({ score, size = "lg" }: { score: number; size?: "sm" | "lg"
 }
 
 function SessionCard({ session }: { session: InterviewSessionWithDomain }) {
-  const formattedDate = session.startedAt 
+  const formattedDate = session.startedAt
     ? new Date(session.startedAt).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
     : "Unknown date";
 
   return (
@@ -81,7 +81,7 @@ function SessionCard({ session }: { session: InterviewSessionWithDomain }) {
               <Badge variant="secondary" className="text-xs">
                 {session.domain?.name || "General"}
               </Badge>
-              <Badge 
+              <Badge
                 variant={session.status === "completed" ? "default" : "outline"}
                 className="text-xs"
               >
@@ -142,15 +142,11 @@ export default function Dashboard() {
   const { user } = useAuth();
 
   const { data: sessions, isLoading: sessionsLoading } = useQuery<InterviewSessionWithDomain[]>({
-    queryKey: ["/api/sessions"],
+    queryKey: ["/api/v1/sessions"],
   });
 
-  const { data: stats } = useQuery<{
-    totalSessions: number;
-    averageScore: number;
-    completedSessions: number;
-  }>({
-    queryKey: ["/api/sessions/stats"],
+  const { data: stats } = useQuery<any>({
+    queryKey: ["/api/v1/sessions/stats"],
   });
 
   const recentSessions = sessions?.slice(0, 5) || [];

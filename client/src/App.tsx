@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +8,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/useAuth";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import AuthPage from "@/pages/auth";
+
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
@@ -15,6 +17,7 @@ import InterviewSetup from "@/pages/interview-setup";
 import InterviewSession from "@/pages/interview-session";
 import PerformanceReport from "@/pages/performance-report";
 import SessionHistory from "@/pages/session-history";
+import ProfilePage from "@/pages/profile";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const sidebarStyle = {
@@ -57,6 +60,7 @@ function Router() {
   if (!isAuthenticated) {
     return (
       <Switch>
+        <Route path="/auth" component={AuthPage} />
         <Route path="/" component={Landing} />
         <Route component={Landing} />
       </Switch>
@@ -68,10 +72,14 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/dashboard" component={Dashboard} />
+        <Route path="/auth">
+          <Redirect to="/dashboard" />
+        </Route>
         <Route path="/interview/setup" component={InterviewSetup} />
         <Route path="/interview/session/:id" component={InterviewSession} />
         <Route path="/report/:id" component={PerformanceReport} />
         <Route path="/history" component={SessionHistory} />
+        <Route path="/profile" component={ProfilePage} />
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>

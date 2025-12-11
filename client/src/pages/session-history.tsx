@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  ArrowRight, 
-  Calendar, 
-  Target, 
-  FileText, 
+import {
+  ArrowRight,
+  Calendar,
+  Target,
+  FileText,
   Play,
   Filter,
 } from "lucide-react";
@@ -57,12 +57,12 @@ function ScoreCircle({ score }: { score: number }) {
 function SessionCard({ session }: { session: InterviewSessionWithDomain }) {
   const formattedDate = session.startedAt
     ? new Date(session.startedAt).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
     : "Unknown date";
 
   return (
@@ -73,7 +73,7 @@ function SessionCard({ session }: { session: InterviewSessionWithDomain }) {
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <Badge variant="secondary">{session.domain?.name || "General"}</Badge>
               <Badge variant="outline">{session.difficulty}</Badge>
-              <Badge 
+              <Badge
                 variant={session.status === "completed" ? "default" : "secondary"}
               >
                 {session.status === "completed" ? "Completed" : "In Progress"}
@@ -144,7 +144,7 @@ function SessionSkeleton() {
 
 export default function SessionHistory() {
   const { data: sessions, isLoading } = useQuery<InterviewSessionWithDomain[]>({
-    queryKey: ["/api/sessions"],
+    queryKey: ["/api/v1/sessions"],
   });
 
   const completedSessions = sessions?.filter(s => s.status === "completed") || [];
