@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "interview-feedback"
+version = "1.0.0"
+description = "FastAPI microservice for CSV-based technical interview quizzes with AI evaluation"
+authors = []
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python          = "^3.12"
+fastapi         = "^0.135.1"
+uvicorn         = {version = "^0.42.0", extras = ["standard"]}
+pandas          = "^3.0.1"
+langchain       = "^1.2.13"
+langchain-openai = "^1.1.11"
+pydantic        = "^2.12.5"
+python-dotenv   = "^1.2.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest          = "^8.0"
+httpx           = "^0.28.1"   # needed by FastAPI TestClient
+
+[build-system]
+requires      = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
