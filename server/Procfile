@@ -1,0 +1,3 @@
+rails: cd ../Backend && bundle exec rails s -p 3000
+ai: cd services/ai/resumeaiservice && uvicorn api:app --host 127.0.0.1 --port 8000
+gateway: cd .. && npm run dev

@@ -14,7 +14,6 @@ import {
   Video,
   VideoOff,
   ArrowRight,
-  Pause,
   Square,
   CheckCircle,
   AlertCircle,
@@ -23,13 +22,6 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import type { InterviewSession, Question, Answer } from "@shared/schema";
-
-interface SessionData extends InterviewSession {
-  domain?: { name: string };
-  questions?: Question[];
-  answers?: Answer[];
-}
 
 export default function InterviewSessionPage() {
   const params = useParams<{ id: string }>();
@@ -38,11 +30,15 @@ export default function InterviewSessionPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
 
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [transcript, setTranscript] = useState("");
+  const [currentQuestionText, setCurrentQuestionText] = useState("");
+  const [questionsAsked, setQuestionsAsked] = useState(1);
+  const [numQuestions, setNumQuestions] = useState(5);
+  const [isComplete, setIsComplete] = useState(false);
+  const [targetRole, setTargetRole] = useState("Role");
+
   const [isRecording, setIsRecording] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isMicOn, setIsMicOn] = useState(false);
@@ -51,21 +47,53 @@ export default function InterviewSessionPage() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const { data: session, isLoading } = useQuery<any>({
-    queryKey: ["/api/v1/sessions", params.id],
-  });
-
-  const submitAnswerMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", `/api/v1/sessions/${params.id}/answers`, data);
+  // Fetch initial transcript directly from FastAPI
+  const { data: transcriptData, isLoading } = useQuery<any>({
+    queryKey: [`/api/ai/v1/interviews/${params.id}/transcript`],
+    queryFn: async () => {
+      const res = await fetch(`/api/ai/v1/interviews/${params.id}/transcript`);
+      if (!res.ok) throw new Error("Could not fetch session");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions", params.id] });
-      toast({
-        title: "Answer Saved",
-        description: "Your response has been recorded.",
+    refetchOnWindowFocus: false,
+  });
+
+  useEffect(() => {
+    if (transcriptData && transcriptData.conversation) {
+      const conv = transcriptData.conversation;
+      const lastQ = conv.filter((msg: any) => msg.role === "interviewer").pop();
+      if (lastQ) {
+        setCurrentQuestionText(lastQ.content);
+        speakQuestion(lastQ.content);
+      }
+      setQuestionsAsked(transcriptData.questions_asked);
+      setNumQuestions(transcriptData.num_questions);
+      setIsComplete(transcriptData.is_complete);
+      setTargetRole(transcriptData.target_role);
+    }
+  }, [transcriptData]);
+
+  // Submission mutation to FastAPI
+  const submitAnswerMutation = useMutation({
+    mutationFn: async (answerText: string) => {
+      const res = await fetch(`/api/ai/v1/interviews/${params.id}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer: answerText }),
       });
+      if (!res.ok) throw new Error("Failed to submit answer");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.is_complete) {
+        setIsComplete(true);
+        syncToRailsMutation.mutate();
+      } else {
+        setCurrentQuestionText(data.next_question);
+        setQuestionsAsked(data.questions_asked);
+        // Speak next question
+        speakQuestion(data.next_question);
+      }
     },
     onError: () => {
       toast({
@@ -76,22 +104,37 @@ export default function InterviewSessionPage() {
     },
   });
 
-  const completeSessionMutation = useMutation({
+  // Sync to Rails mutation
+  const syncToRailsMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/v1/sessions/${params.id}/complete`, {});
-      return res.json();
+      // First, get the evaluation from FastAPI
+      const evalRes = await fetch(`/api/ai/v1/interviews/${params.id}/evaluate`);
+      if (!evalRes.ok) throw new Error("Failed to evaluate AI session");
+      const evalData = await evalRes.json();
+
+      // Get the transcript
+      const transRes = await fetch(`/api/ai/v1/interviews/${params.id}/transcript`);
+      const transData = await transRes.json();
+
+      // Post both to Rails to create the Dashboard history
+      const syncRes = await apiRequest("POST", "/api/v1/sessions/sync_ai_session", {
+        sessionId: params.id,
+        evaluation: evalData,
+        transcript: transData
+      });
+      return syncRes.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (syncData) => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions"] });
-      setLocation(`/report/${data.session.id}`);
+      setLocation(`/report/${syncData.report_id}`); // Route to the Rails report
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to complete session. Please try again.",
+        title: "Evaluation Sync Error",
+        description: "Your session finished but failed to sync to Dashboard.",
         variant: "destructive",
       });
-    },
+    }
   });
 
   const startCamera = useCallback(async () => {
@@ -125,67 +168,44 @@ export default function InterviewSessionPage() {
   }, []);
 
   const startRecording = useCallback(() => {
-    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
-      toast({
-        title: "Not Supported",
-        description: "Speech recognition is not supported in your browser.",
-        variant: "destructive",
-      });
-      return;
-    }
+    if (!mediaStreamRef.current) return;
+    try {
+      const recorder = new MediaRecorder(mediaStreamRef.current);
+      audioChunksRef.current = [];
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = session?.language === "ur" ? "ur-PK" :
-      session?.language === "fr" ? "fr-FR" :
-        session?.language === "es" ? "es-ES" : "en-US";
-
-    recognition.onresult = (event) => {
-      let finalTranscript = "";
-      let interimTranscript = "";
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalTranscript += result[0].transcript + " ";
-        } else {
-          interimTranscript += result[0].transcript;
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
         }
-      }
+      };
 
-      if (finalTranscript) {
-        setTranscript(prev => prev + finalTranscript);
-      }
-
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-      }
-      silenceTimerRef.current = setTimeout(() => {
-      }, 3000);
-    };
-
-    recognition.onerror = (event) => {
-      console.error("Speech recognition error:", event.error);
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsRecording(true);
-  }, [session?.language, toast]);
-
-  const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (e) {
+      console.error("MediaRecorder start failed", e);
     }
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-    }
-    setIsRecording(false);
   }, []);
+
+  const stopRecordingAndGetBlob = (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+        resolve(null);
+        return;
+      }
+
+      mediaRecorderRef.current.onstop = () => {
+        setIsRecording(false);
+        if (audioChunksRef.current.length > 0) {
+          resolve(new Blob(audioChunksRef.current));
+        } else {
+          resolve(null);
+        }
+      };
+
+      mediaRecorderRef.current.stop();
+    });
+  };
 
   const stopSpeaking = useCallback(() => {
     window.speechSynthesis.cancel();
@@ -194,23 +214,12 @@ export default function InterviewSessionPage() {
 
   const speakQuestion = useCallback((text: string) => {
     stopSpeaking();
-
     if (!text) return;
-
     const utterance = new SpeechSynthesisUtterance(text);
-    // Use a default voice or try to find a Google one if available/preferred
-    // const voices = window.speechSynthesis.getVoices();
-    // const googleVoice = voices.find(v => v.name.includes("Google"));
-    // if (googleVoice) utterance.voice = googleVoice;
-
-    utterance.lang = "en-US"; // Default to English, could be dynamic based on session.language
-    utterance.rate = 1;
-    utterance.pitch = 1;
-
+    utterance.lang = "en-US";
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
-
     window.speechSynthesis.speak(utterance);
   }, [stopSpeaking]);
 
@@ -218,80 +227,80 @@ export default function InterviewSessionPage() {
     startCamera();
     return () => {
       stopCamera();
-      stopRecording();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
       stopSpeaking();
     };
-  }, [startCamera, stopCamera, stopRecording, stopSpeaking]);
+  }, [startCamera, stopCamera, stopSpeaking]);
 
   useEffect(() => {
-    if (isCameraOn && !isRecording) {
+    if (isCameraOn && !isRecording && !isSpeaking) {
       startRecording();
     }
-  }, [isCameraOn, isRecording, startRecording]);
+  }, [isCameraOn, isRecording, isSpeaking, startRecording]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (isRecording) {
-      timer = setInterval(() => {
-        setElapsedTime(prev => prev + 1);
-      }, 1000);
+      timer = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
     }
     return () => clearInterval(timer);
   }, [isRecording]);
 
-  useEffect(() => {
-    const behaviorInterval = setInterval(() => {
-      const random = Math.random();
-      setBehaviorStatus(random > 0.2 ? "good" : "warning");
-    }, 5000);
-    return () => clearInterval(behaviorInterval);
-  }, []);
-
   const handleNextQuestion = async () => {
-    if (!session?.questions || isSubmitting) return;
-
-    const currentQuestion = session.questions[currentQuestionIndex];
-    if (!currentQuestion) return;
-
+    if (isSubmitting || syncToRailsMutation.isPending) return;
     setIsSubmitting(true);
-    stopRecording();
     stopSpeaking();
 
-    try {
-      await submitAnswerMutation.mutateAsync({
-        questionId: currentQuestion.id,
-        transcript: transcript.trim() || "No response recorded",
-        duration: elapsedTime,
-      });
+    const audioBlob = await stopRecordingAndGetBlob();
+    let text = "No response recorded";
 
-      if (currentQuestionIndex < session.questions.length - 1) {
-        setCurrentQuestionIndex(prev => prev + 1);
-        setTranscript("");
-        setElapsedTime(0);
-        startRecording();
-        // Option: speakQuestion(session.questions[currentQuestionIndex + 1].text);
-      } else {
-        await completeSessionMutation.mutateAsync();
-      }
+    if (audioBlob) {
+       try {
+          const formData = new FormData();
+          formData.append("file", audioBlob, "answer.webm");
+          const res = await fetch("/api/ai/v1/transcribe", { method: "POST", body: formData });
+          const data = await res.json();
+          if (data.text) text = data.text;
+       } catch (e) {
+          console.error(e);
+       }
+    }
+
+    try {
+      await submitAnswerMutation.mutateAsync(text);
+      setElapsedTime(0);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleEndSession = async () => {
-    stopRecording();
-    stopCamera();
+    if (isSubmitting || syncToRailsMutation.isPending) return;
+    setIsSubmitting(true);
     stopSpeaking();
 
-    if (transcript.trim() && session?.questions?.[currentQuestionIndex]) {
-      await submitAnswerMutation.mutateAsync({
-        questionId: session.questions[currentQuestionIndex].id,
-        transcript: transcript.trim(),
-        duration: elapsedTime,
-      });
+    const audioBlob = await stopRecordingAndGetBlob();
+    stopCamera();
+
+    let text = "No response recorded";
+    if (audioBlob) {
+       try {
+          const formData = new FormData();
+          formData.append("file", audioBlob, "answer.webm");
+          const res = await fetch("/api/ai/v1/transcribe", { method: "POST", body: formData });
+          const data = await res.json();
+          if (data.text) text = data.text;
+       } catch (e) {}
     }
 
-    await completeSessionMutation.mutateAsync();
+    await submitAnswerMutation.mutateAsync(text);
+    
+    // Evaluate if we didn't naturally hit is_complete
+    if (!isComplete && !syncToRailsMutation.isPending) {
+      syncToRailsMutation.mutate();
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -300,45 +309,40 @@ export default function InterviewSessionPage() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  if (isLoading) {
+  if (isLoading || syncToRailsMutation.isPending) {
     return (
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-        <Skeleton className="h-8 w-64 mb-4" />
-        <Skeleton className="h-4 w-48 mb-8" />
-        <div className="grid lg:grid-cols-5 gap-6">
-          <Skeleton className="lg:col-span-2 aspect-video" />
-          <Skeleton className="lg:col-span-3 h-64" />
-        </div>
+      <div className="p-6 lg:p-8 max-w-7xl mx-auto text-center py-20">
+        <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto mb-4" />
+        <h2 className="text-xl font-semibold">
+          {syncToRailsMutation.isPending ? "Generating your AI Evaluation Scorecard..." : "Loading Interview Session..."}
+        </h2>
       </div>
     );
   }
 
-  if (!session) {
+  if (!transcriptData) {
     return (
-      <div className="p-6 lg:p-8 max-w-7xl mx-auto text-center">
+      <div className="p-6 lg:p-8 max-w-7xl mx-auto text-center py-20">
         <h1 className="text-2xl font-bold mb-4">Session Not Found</h1>
-        <p className="text-muted-foreground mb-6">This interview session could not be found.</p>
         <Button onClick={() => setLocation("/dashboard")}>Return to Dashboard</Button>
       </div>
     );
   }
 
-  const questions = session.questions || [];
-  const currentQuestion = questions[currentQuestionIndex];
-  const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
-  const isLastQuestion = currentQuestionIndex === questions.length - 1;
+  const progress = (questionsAsked / numQuestions) * 100;
+  const isLastQuestion = questionsAsked >= numQuestions;
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold mb-1" data-testid="text-session-title">
-            {session.domain?.name || "Interview"} Session
+          <h1 className="text-2xl font-bold mb-1">
+            {targetRole} Interview
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
-            <Badge variant="secondary">{session.difficulty}</Badge>
+            <Badge variant="secondary">AI Assisted</Badge>
             <span className="text-sm text-muted-foreground">
-              Question {currentQuestionIndex + 1} of {questions.length}
+              Question {questionsAsked} of {numQuestions}
             </span>
           </div>
         </div>
@@ -351,8 +355,7 @@ export default function InterviewSessionPage() {
             variant="outline"
             size="sm"
             onClick={handleEndSession}
-            disabled={completeSessionMutation.isPending}
-            data-testid="button-end-session"
+            disabled={syncToRailsMutation.isPending || isSubmitting}
           >
             <Square className="w-4 h-4 mr-2" />
             End Session
@@ -384,23 +387,11 @@ export default function InterviewSessionPage() {
               )}
 
               <div
-                className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors ${behaviorStatus === "good"
-                  ? "bg-green-500/90 text-white"
-                  : "bg-red-500/90 text-white animate-pulse"
-                  }`}
-                data-testid="indicator-behavior"
+                className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors ${
+                  behaviorStatus === "good" ? "bg-green-500/90 text-white" : "bg-red-500/90 text-white animate-pulse"
+                }`}
               >
-                {behaviorStatus === "good" ? (
-                  <>
-                    <CheckCircle className="w-4 h-4" />
-                    Good posture
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4" />
-                    Adjust posture
-                  </>
-                )}
+                {behaviorStatus === "good" ? <><CheckCircle className="w-4 h-4" /> Good posture</> : <><AlertCircle className="w-4 h-4" /> Adjust posture</>}
               </div>
 
               <div className="absolute bottom-4 left-4 flex items-center gap-2">
@@ -408,23 +399,28 @@ export default function InterviewSessionPage() {
                   size="icon"
                   variant={isCameraOn ? "secondary" : "destructive"}
                   onClick={() => isCameraOn ? stopCamera() : startCamera()}
-                  data-testid="button-toggle-camera"
                 >
                   {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
                 </Button>
                 <Button
                   size="icon"
                   variant={isMicOn ? "secondary" : "destructive"}
-                  data-testid="button-toggle-mic"
+                  onClick={() => setIsMicOn(!isMicOn)}
                 >
                   {isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
                 </Button>
               </div>
 
-              {isRecording && (
+              {isRecording && !isSpeaking && (
                 <div className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500 text-white text-xs font-medium">
                   <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
                   Recording
+                </div>
+              )}
+               {isSpeaking && (
+                <div className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500 text-white text-xs font-medium">
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  AI Speaking
                 </div>
               )}
             </div>
@@ -432,10 +428,27 @@ export default function InterviewSessionPage() {
 
           <Card className="mt-4">
             <CardContent className="p-4">
-              <h3 className="font-semibold mb-2 text-sm">Live Transcript</h3>
-              <div className="h-32 overflow-y-auto text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
-                {transcript || (
-                  <span className="italic">Start speaking to see your transcript here...</span>
+              <h3 className="font-semibold mb-2 text-sm">Recording Status</h3>
+              <div className="h-32 flex items-center justify-center text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                {isSubmitting ? (
+                  <div className="text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-primary" />
+                    <p>Transcribing & Analyzing with AI...</p>
+                  </div>
+                ) : isRecording ? (
+                  <div className="text-center w-full">
+                    <div className="flex gap-1 justify-center mb-3 items-end h-8">
+                       <span className="w-1.5 h-3 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                       <span className="w-1.5 h-5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                       <span className="w-1.5 h-8 bg-red-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                       <span className="w-1.5 h-5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '450ms' }} />
+                       <span className="w-1.5 h-3 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '600ms' }} />
+                    </div>
+                    <p className="text-red-500 font-medium">Listening to your answer...</p>
+                    <p className="text-xs mt-1">Click Submit when finished</p>
+                  </div>
+                ) : (
+                  <span className="italic">Waiting for question...</span>
                 )}
               </div>
             </CardContent>
@@ -447,17 +460,16 @@ export default function InterviewSessionPage() {
             <CardContent className="p-8 flex flex-col h-full">
               <div className="flex-1">
                 <Badge variant="outline" className="mb-4">
-                  Question {currentQuestionIndex + 1}
+                  Question {questionsAsked}
                 </Badge>
                 <div className="flex items-start gap-4 mb-6">
-                  <h2 className="text-2xl font-semibold flex-1" data-testid="text-current-question">
-                    {currentQuestion?.text || "Loading question..."}
+                  <h2 className="text-2xl font-semibold flex-1">
+                    {currentQuestionText || "Loading question..."}
                   </h2>
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => isSpeaking ? stopSpeaking() : speakQuestion(currentQuestion?.text || "")}
-                    title={isSpeaking ? "Stop reading" : "Read question"}
+                    onClick={() => isSpeaking ? stopSpeaking() : speakQuestion(currentQuestionText)}
                   >
                     {isSpeaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                   </Button>
@@ -466,8 +478,8 @@ export default function InterviewSessionPage() {
                 <div className="bg-muted/30 rounded-lg p-4 mb-6">
                   <h4 className="text-sm font-medium mb-2">Tips</h4>
                   <ul className="text-sm text-muted-foreground space-y-1">
-                    <li>Take a moment to structure your answer</li>
-                    <li>Use specific examples from your experience</li>
+                    <li>The AI listens fully to your response</li>
+                    <li>Wait for it to finish speaking before answering</li>
                     <li>Maintain eye contact with the camera</li>
                   </ul>
                 </div>
@@ -477,29 +489,19 @@ export default function InterviewSessionPage() {
                 <p className="text-sm text-muted-foreground">
                   {isLastQuestion
                     ? "This is the last question"
-                    : `${questions.length - currentQuestionIndex - 1} questions remaining`}
+                    : `${numQuestions - questionsAsked} questions remaining`}
                 </p>
                 <Button
                   size="lg"
                   onClick={handleNextQuestion}
-                  disabled={isSubmitting || submitAnswerMutation.isPending}
-                  data-testid="button-next-question"
+                  disabled={isSubmitting || syncToRailsMutation.isPending || elapsedTime < 2}
                 >
-                  {isSubmitting || submitAnswerMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
+                  {isSubmitting || syncToRailsMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</>
                   ) : isLastQuestion ? (
-                    <>
-                      Finish Interview
-                      <CheckCircle className="w-4 h-4 ml-2" />
-                    </>
+                    <>Finish Interview <CheckCircle className="w-4 h-4 ml-2" /></>
                   ) : (
-                    <>
-                      Next Question
-                      <ArrowRight className="w-4 h-4 ml-2" />
-                    </>
+                    <>Submit & Next <ArrowRight className="w-4 h-4 ml-2" /></>
                   )}
                 </Button>
               </div>
@@ -509,11 +511,4 @@ export default function InterviewSessionPage() {
       </div>
     </div>
   );
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
 }

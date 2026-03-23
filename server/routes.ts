@@ -1,7 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertInterviewSessionSchema, insertAnswerSchema } from "@shared/schema";
 import OpenAI from "openai";
 
@@ -16,9 +15,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  await setupAuth(app);
 
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+  app.get('/api/auth/user', async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
@@ -52,7 +50,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/sessions", isAuthenticated, async (req: any, res) => {
+  app.get("/api/sessions", async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const sessions = await storage.getUserSessions(userId);
@@ -63,7 +61,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/sessions/stats", isAuthenticated, async (req: any, res) => {
+  app.get("/api/sessions/stats", async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const stats = await storage.getUserStats(userId);
@@ -74,7 +72,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/sessions/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/sessions/:id", async (req: any, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session) {
@@ -90,7 +88,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/sessions", isAuthenticated, async (req: any, res) => {
+  app.post("/api/sessions", async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const sessionData = insertInterviewSessionSchema.parse({
@@ -123,7 +121,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/sessions/:id/answers", isAuthenticated, async (req: any, res) => {
+  app.get("/api/sessions/:id/answers", async (req: any, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session) {
@@ -140,7 +138,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/sessions/:sessionId/answers/:answerId", isAuthenticated, async (req: any, res) => {
+  app.post("/api/sessions/:sessionId/answers/:answerId", async (req: any, res) => {
     try {
       const { transcript, duration } = req.body;
       const session = await storage.getSession(req.params.sessionId);
@@ -243,7 +241,7 @@ Please evaluate this interview response.`
     }
   });
 
-  app.post("/api/sessions/:id/complete", isAuthenticated, async (req: any, res) => {
+  app.post("/api/sessions/:id/complete", async (req: any, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session) {
@@ -349,7 +347,7 @@ Please provide actionable recommendations for this candidate.`
     }
   });
 
-  app.get("/api/reports/:sessionId", isAuthenticated, async (req: any, res) => {
+  app.get("/api/reports/:sessionId", async (req: any, res) => {
     try {
       const session = await storage.getSession(req.params.sessionId);
       if (!session) {

@@ -213,6 +213,52 @@ def health():
     return {"status": "ok", "active_sessions": len(SESSION_STORE)}
 
 
+from openai import AsyncOpenAI
+import os
+
+groq_api_key = os.getenv("GROQ_API_KEY")
+openai_client = AsyncOpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1") if groq_api_key else None
+
+@app.post(
+    "/api/v1/transcribe",
+    status_code=status.HTTP_200_OK,
+    summary="Transcribe audio using Whisper",
+    tags=["Audio"],
+)
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Takes an audio file (e.g., .webm from the browser) and transcribes it using Groq's Whisper API.
+    """
+    if not openai_client:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY is not configured in .env. Please add it to use Voice Transcription.")
+
+    suffix = ".webm"
+    if file.filename:
+        _, ext = os.path.splitext(file.filename)
+        if ext:
+            suffix = ext
+            
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "rb") as audio_file:
+            transcript = await openai_client.audio.transcriptions.create(
+                model="whisper-large-v3",
+                file=audio_file,
+                response_format="json"
+            )
+        return {"text": transcript.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {str(e)}")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+
 @app.post(
     "/api/v1/parse-resume",
     response_model=ParseResumeResponse,

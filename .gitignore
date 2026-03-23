@@ -21,19 +21,19 @@ yarn-debug.log*
 yarn-error.log*
 
 # Rails / Server
-rails_server/log/*
-!rails_server/log/.keep
-rails_server/tmp/
-rails_server/storage/*
-!rails_server/storage/.keep
-rails_server/public/assets
-rails_server/public/packs
-rails_server/public/packs-test
-rails_server/node_modules
-rails_server/yarn-error.log
-rails_server/.env
-rails_server/config/master.key
-rails_server/config/credentials.yml.enc
+Backend/log/*
+!Backend/log/.keep
+Backend/tmp/
+Backend/storage/*
+!Backend/storage/.keep
+Backend/public/assets
+Backend/public/packs
+Backend/public/packs-test
+Backend/node_modules
+Backend/yarn-error.log
+Backend/.env
+Backend/config/master.key
+Backend/config/credentials.yml.enc
 
 # Bundler
 /.bundle

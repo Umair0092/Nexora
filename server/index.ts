@@ -3,6 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 const app = express();
 const httpServer = createServer(app);
@@ -14,12 +15,23 @@ declare module "http" {
 }
 
 
-// Proxy must be set up BEFORE body parsers to handle POST/PUT requests correctly
-import { createProxyMiddleware } from "http-proxy-middleware";
+// Proxy for AI service (FastAPI)
 app.use(
-  "/api/v1",
   createProxyMiddleware({
-    target: "http://localhost:3000/api/v1",
+    pathFilter: "/api/ai",
+    target: "http://127.0.0.1:8000",
+    changeOrigin: true,
+    pathRewrite: {
+      "^/api/ai": "/api",
+    },
+  })
+);
+
+// Proxy for Main Backend (Rails)
+app.use(
+  createProxyMiddleware({
+    pathFilter: (pathname: string) => pathname.startsWith("/api") && !pathname.startsWith("/api/ai"),
+    target: "http://127.0.0.1:3000",
     changeOrigin: true,
   })
 );
