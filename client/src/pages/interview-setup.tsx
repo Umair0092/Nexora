@@ -28,6 +28,7 @@ import {
   Upload,
   Loader2,
   Save,
+  Layers,
 } from "lucide-react";
 import type { Domain } from "@shared/schema";
 
@@ -72,8 +73,17 @@ const languages = [
   { code: "es", name: "Spanish", flag: "🇪🇸" },
 ];
 
-type InterviewType = "role" | "cv" | null;
-type Step = "type" | "domain" | "difficulty" | "language" | "cv_setup" | "confirm";
+// The 5 quiz categories available for role-based and complete interviews
+const quizRoles = [
+  { id: "General Software Engineering", label: "Software Engineering", icon: Code },
+  { id: "AI (Data Science)", label: "AI / Data Science", icon: LineChart },
+  { id: "SQL", label: "SQL", icon: DollarSign },
+  { id: "DevOps", label: "DevOps", icon: Briefcase },
+  { id: "Containers and Cloud", label: "Containers & Cloud", icon: Megaphone },
+];
+
+type InterviewType = "role" | "cv" | "complete" | null;
+type Step = "type" | "domain" | "difficulty" | "language" | "cv_setup" | "complete_role" | "confirm";
 
 export default function InterviewSetup() {
   const [, setLocation] = useLocation();
@@ -90,6 +100,9 @@ export default function InterviewSetup() {
   const [targetRole, setTargetRole] = useState("Software Engineer");
   const [candidateData, setCandidateData] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Complete interview: selected quiz role
+  const [selectedQuizRole, setSelectedQuizRole] = useState("General Software Engineering");
 
   const { data: domains, isLoading: domainsLoading } = useQuery<Domain[]>({
     queryKey: ["/api/v1/domains"],
@@ -147,7 +160,7 @@ export default function InterviewSetup() {
         // Use Quiz API for role-based interviews
         const quizCategory = domainToQuizCategory[selectedDomain?.name || ""] || "General Software Engineering";
         const quizDifficulty = difficultyMapping[selectedDifficulty] || "medium";
-        
+
         const res = await fetch("/api/quiz", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -160,6 +173,37 @@ export default function InterviewSetup() {
         });
         if (!res.ok) throw new Error("Failed to start role-based interview");
         return res.json();
+      }
+
+      if (interviewType === "complete") {
+        // Complete interview: create BOTH CV session (5 Qs) and Quiz session (5 Qs)
+        const [cvRes, quizRes] = await Promise.all([
+          fetch("/api/ai/v1/interviews", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              candidate_data: candidateData,
+              target_role: targetRole,
+              num_questions: 5,
+              language: selectedLanguage || "en",
+            }),
+          }),
+          fetch("/api/quiz", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              target_role: selectedQuizRole,
+              num_questions: 5,
+              difficulty: "medium",
+              language: selectedLanguage || "en",
+            }),
+          }),
+        ]);
+        if (!cvRes.ok) throw new Error("Failed to start CV-based interview");
+        if (!quizRes.ok) throw new Error("Failed to start role-based interview");
+        const cvData = await cvRes.json();
+        const quizData = await quizRes.json();
+        return { cvSession: cvData, quizSession: quizData };
       }
 
       // CV-based uses existing AI interview service
@@ -176,13 +220,13 @@ export default function InterviewSetup() {
       if (!res.ok) throw new Error("Failed to start CV-based interview");
       return res.json();
     },
-    onSuccess: (data) => {
-      // data.session_id is the FastAPI session UUID
+    onSuccess: (data: any) => {
       if (interviewType === "role") {
-        // Role-based uses quiz session
         setLocation(`/interview/session/${data.session_id}?type=role&lang=${selectedLanguage}`);
+      } else if (interviewType === "complete") {
+        // Pass both session IDs via URL params
+        setLocation(`/interview/session/${data.cvSession.session_id}?type=complete&lang=${selectedLanguage}&quizSessionId=${data.quizSession.session_id}`);
       } else {
-        // CV-based uses AI interview session
         setLocation(`/interview/session/${data.session_id}?type=cv&lang=${selectedLanguage}`);
       }
     },
@@ -195,7 +239,9 @@ export default function InterviewSetup() {
     },
   });
 
-  const steps: Step[] = interviewType === "cv"
+  const steps: Step[] = interviewType === "complete"
+    ? ["type", "cv_setup", "complete_role", "language", "confirm"]
+    : interviewType === "cv"
     ? ["type", "cv_setup", "language", "confirm"]
     : ["type", "domain", "difficulty", "language", "confirm"];
 
@@ -221,6 +267,7 @@ export default function InterviewSetup() {
       case "type": return interviewType !== null;
       case "domain": return selectedDomain !== null;
       case "cv_setup": return candidateData !== null;
+      case "complete_role": return selectedQuizRole !== "";
       case "difficulty": return selectedDifficulty !== "";
       case "language": return selectedLanguage !== "";
       default: return true;
@@ -305,7 +352,7 @@ export default function InterviewSetup() {
         <div>
           <h2 className="text-xl font-semibold mb-2">How would you like to practice?</h2>
           <p className="text-muted-foreground mb-6">Choose the base context for your AI interview.</p>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-3 gap-4">
             <Card
               className={`cursor-pointer transition-all ${interviewType === "role" ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
               onClick={() => setInterviewType("role")}
@@ -327,8 +374,21 @@ export default function InterviewSetup() {
                 <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                   <FileText className="w-8 h-8 text-primary" />
                 </div>
-                <h3 className="font-semibold text-lg mb-2">With CV</h3>
+                <h3 className="font-semibold text-lg mb-2">CV Based</h3>
                 <p className="text-sm text-muted-foreground">Upload your resume for highly personalized questions.</p>
+              </CardContent>
+            </Card>
+
+            <Card
+              className={`cursor-pointer transition-all ${interviewType === "complete" ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
+              onClick={() => setInterviewType("complete")}
+            >
+              <CardContent className="p-6 flex flex-col items-center text-center">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                  <Layers className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="font-semibold text-lg mb-2">Complete Interview</h3>
+                <p className="text-sm text-muted-foreground">5 CV-based + 5 role-based questions for a full assessment.</p>
               </CardContent>
             </Card>
           </div>
@@ -393,6 +453,38 @@ export default function InterviewSetup() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {step === "complete_role" && (
+        <div>
+          <h2 className="text-xl font-semibold mb-2">Select Role for Technical Questions</h2>
+          <p className="text-muted-foreground mb-6">The last 5 questions will be role-specific technical questions.</p>
+          <div className="grid md:grid-cols-2 gap-4">
+            {quizRoles.map((role) => {
+              const IconComponent = role.icon;
+              const isSelected = selectedQuizRole === role.id;
+              return (
+                <Card
+                  key={role.id}
+                  className={`cursor-pointer transition-all ${isSelected ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
+                  onClick={() => setSelectedQuizRole(role.id)}
+                >
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${isSelected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
+                        <IconComponent className="w-6 h-6" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold mb-1">{role.label}</h3>
+                      </div>
+                      {isSelected && <Check className="w-5 h-5 text-primary" />}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -487,18 +579,37 @@ export default function InterviewSetup() {
             <CardContent className="p-6 space-y-4">
               <div className="flex justify-between border-b pb-4">
                 <span className="text-muted-foreground">Interview Mode</span>
-                <Badge>{interviewType === "cv" ? "With CV Context" : "Role Based"}</Badge>
+                <Badge>{interviewType === "complete" ? "Complete Interview" : interviewType === "cv" ? "CV Based" : "Role Based"}</Badge>
               </div>
-              <div className="flex justify-between border-b pb-4">
-                <span className="text-muted-foreground">Target Role</span>
-                <span className="font-semibold">
-                  {interviewType === "cv" ? targetRole : selectedDomain?.name}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-4">
-                <span className="text-muted-foreground">Difficulty</span>
-                <span className="font-semibold capitalize">{selectedDifficulty}</span>
-              </div>
+              {interviewType === "complete" ? (
+                <>
+                  <div className="flex justify-between border-b pb-4">
+                    <span className="text-muted-foreground">CV Target Role</span>
+                    <span className="font-semibold">{targetRole}</span>
+                  </div>
+                  <div className="flex justify-between border-b pb-4">
+                    <span className="text-muted-foreground">Technical Role</span>
+                    <span className="font-semibold">{quizRoles.find(r => r.id === selectedQuizRole)?.label}</span>
+                  </div>
+                  <div className="flex justify-between border-b pb-4">
+                    <span className="text-muted-foreground">Questions</span>
+                    <span className="font-semibold">5 CV + 5 Role = 10 Total</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between border-b pb-4">
+                    <span className="text-muted-foreground">Target Role</span>
+                    <span className="font-semibold">
+                      {interviewType === "cv" ? targetRole : selectedDomain?.name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-b pb-4">
+                    <span className="text-muted-foreground">Difficulty</span>
+                    <span className="font-semibold capitalize">{selectedDifficulty}</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between pb-2">
                 <span className="text-muted-foreground">Language</span>
                 <span className="font-semibold">

@@ -30,9 +30,15 @@ export default function InterviewSessionPage() {
 
   // Get interview type and language from URL query params
   const searchParams = new URLSearchParams(window.location.search);
-  const interviewType = searchParams.get('type') || 'cv'; // 'role' or 'cv'
+  const interviewType = searchParams.get('type') || 'cv'; // 'role', 'cv', or 'complete'
   const isRoleBased = interviewType === 'role';
+  const isCompleteMode = interviewType === 'complete';
+  const quizSessionId = searchParams.get('quizSessionId') || '';
   const interviewLang = searchParams.get('lang') || 'en'; // 'en' or 'ur'
+
+  // For complete interview: track which phase we're in
+  const [completePhase, setCompletePhase] = useState<'cv' | 'role'>('cv');
+  const [cvPhaseComplete, setCvPhaseComplete] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -63,12 +69,24 @@ export default function InterviewSessionPage() {
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   // Fetch initial transcript - use different API based on interview type
+  // For complete mode, start with CV session (phase 1)
   const { data: transcriptData, isLoading } = useQuery<any>({
-    queryKey: [isRoleBased ? `/api/quiz/${params.id}/transcript` : `/api/ai/v1/interviews/${params.id}/transcript`],
+    queryKey: [
+      isCompleteMode
+        ? (completePhase === 'cv' ? `/api/ai/v1/interviews/${params.id}/transcript` : `/api/quiz/${quizSessionId}/transcript`)
+        : isRoleBased ? `/api/quiz/${params.id}/transcript` : `/api/ai/v1/interviews/${params.id}/transcript`
+    ],
     queryFn: async () => {
-      const endpoint = isRoleBased 
-        ? `/api/quiz/${params.id}/transcript`
-        : `/api/ai/v1/interviews/${params.id}/transcript`;
+      let endpoint: string;
+      if (isCompleteMode) {
+        endpoint = completePhase === 'cv'
+          ? `/api/ai/v1/interviews/${params.id}/transcript`
+          : `/api/quiz/${quizSessionId}/transcript`;
+      } else {
+        endpoint = isRoleBased
+          ? `/api/quiz/${params.id}/transcript`
+          : `/api/ai/v1/interviews/${params.id}/transcript`;
+      }
       const res = await fetch(endpoint);
       if (!res.ok) throw new Error("Could not fetch session");
       return res.json();
@@ -79,7 +97,10 @@ export default function InterviewSessionPage() {
   useEffect(() => {
     if (!transcriptData) return;
 
-    if (isRoleBased) {
+    // Determine if we should parse as quiz format
+    const useQuizFormat = isRoleBased || (isCompleteMode && completePhase === 'role');
+
+    if (useQuizFormat) {
       // Quiz API format
       const trans = transcriptData.transcript || [];
       const currentQ = trans[transcriptData.questions_asked] || trans[trans.length - 1];
@@ -89,12 +110,14 @@ export default function InterviewSessionPage() {
           speakQuestion(currentQ.question);
         }
       }
-      setQuestionsAsked(transcriptData.is_complete ? transcriptData.questions_asked : transcriptData.questions_asked + 1);
-      setNumQuestions(transcriptData.num_questions);
+      const asked = transcriptData.is_complete ? transcriptData.questions_asked : transcriptData.questions_asked + 1;
+      // In complete mode phase 2, offset by 5 (CV questions already done)
+      setQuestionsAsked(isCompleteMode ? asked + 5 : asked);
+      setNumQuestions(isCompleteMode ? 10 : transcriptData.num_questions);
       setIsComplete(transcriptData.is_complete);
       setTargetRole(transcriptData.target_role);
     } else {
-      // AI Interview API format
+      // AI Interview API format (CV-based or complete mode phase 1)
       const conv = transcriptData.conversation;
       const lastQ = conv.filter((msg: any) => msg.role === "interviewer").pop();
       if (lastQ) {
@@ -102,19 +125,26 @@ export default function InterviewSessionPage() {
         speakQuestion(lastQ.content);
       }
       setQuestionsAsked(transcriptData.questions_asked);
-      setNumQuestions(transcriptData.num_questions);
+      setNumQuestions(isCompleteMode ? 10 : transcriptData.num_questions);
       setIsComplete(transcriptData.is_complete);
       setTargetRole(transcriptData.target_role);
     }
-  }, [transcriptData, isRoleBased]);
+  }, [transcriptData, isRoleBased, isCompleteMode, completePhase]);
 
   // Submission mutation - use different API based on interview type
   const submitAnswerMutation = useMutation({
     mutationFn: async (answerText: string) => {
-      const endpoint = isRoleBased
-        ? `/api/quiz/${params.id}/answer`
-        : `/api/ai/v1/interviews/${params.id}/answer`;
-      
+      let endpoint: string;
+      if (isCompleteMode) {
+        endpoint = completePhase === 'cv'
+          ? `/api/ai/v1/interviews/${params.id}/answer`
+          : `/api/quiz/${quizSessionId}/answer`;
+      } else {
+        endpoint = isRoleBased
+          ? `/api/quiz/${params.id}/answer`
+          : `/api/ai/v1/interviews/${params.id}/answer`;
+      }
+
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,12 +155,39 @@ export default function InterviewSessionPage() {
     },
     onSuccess: (data) => {
       if (data.is_complete) {
-        setIsComplete(true);
-        syncToRailsMutation.mutate();
+        if (isCompleteMode && completePhase === 'cv') {
+          // CV phase done — transition to role-based phase
+          setCvPhaseComplete(true);
+          setCompletePhase('role');
+          // Fetch the first quiz question from the quiz transcript
+          fetch(`/api/quiz/${quizSessionId}/transcript`)
+            .then(res => res.json())
+            .then(quizData => {
+              const trans = quizData.transcript || [];
+              const firstQ = trans[0];
+              if (firstQ && firstQ.question) {
+                setCurrentQuestionText(firstQ.question);
+                speakQuestion(firstQ.question);
+              }
+              setQuestionsAsked(6); // 5 CV done + 1st role question
+              setIsComplete(false);
+            });
+        } else {
+          setIsComplete(true);
+          syncToRailsMutation.mutate();
+        }
       } else {
         const nextQuestion = data.next_question;
         setCurrentQuestionText(nextQuestion);
-        setQuestionsAsked(data.questions_asked);
+        if (isCompleteMode) {
+          if (completePhase === 'cv') {
+            setQuestionsAsked(data.questions_asked);
+          } else {
+            setQuestionsAsked(data.questions_asked + 5); // offset by CV questions
+          }
+        } else {
+          setQuestionsAsked(data.questions_asked);
+        }
         speakQuestion(nextQuestion);
       }
     },
@@ -211,24 +268,78 @@ export default function InterviewSessionPage() {
   // Sync to Rails mutation
   const syncToRailsMutation = useMutation({
     mutationFn: async () => {
-      // Get evaluation from the appropriate API
-      const evalEndpoint = isRoleBased
-        ? `/api/quiz/${params.id}/evaluate`
-        : `/api/ai/v1/interviews/${params.id}/evaluate`;
-      
-      console.log("Fetching evaluation from:", evalEndpoint);
-      const evalRes = await fetch(evalEndpoint);
-      if (!evalRes.ok) throw new Error("Failed to evaluate session");
-      const evalData = await evalRes.json();
-      console.log("Evaluation data received:", evalData);
+      let evalData: any;
+      let transData: any;
 
-      // Get the transcript
-      const transEndpoint = isRoleBased
-        ? `/api/quiz/${params.id}/transcript`
-        : `/api/ai/v1/interviews/${params.id}/transcript`;
-      const transRes = await fetch(transEndpoint);
-      const transData = await transRes.json();
-      console.log("Transcript data received:", transData);
+      if (isCompleteMode) {
+        // Evaluate BOTH sessions and combine results
+        const [cvEvalRes, quizEvalRes] = await Promise.all([
+          fetch(`/api/ai/v1/interviews/${params.id}/evaluate`),
+          fetch(`/api/quiz/${quizSessionId}/evaluate`),
+        ]);
+        if (!cvEvalRes.ok) throw new Error("Failed to evaluate CV session");
+        if (!quizEvalRes.ok) throw new Error("Failed to evaluate quiz session");
+        const cvEval = await cvEvalRes.json();
+        const quizEval = await quizEvalRes.json();
+
+        // Get both transcripts
+        const [cvTransRes, quizTransRes] = await Promise.all([
+          fetch(`/api/ai/v1/interviews/${params.id}/transcript`),
+          fetch(`/api/quiz/${quizSessionId}/transcript`),
+        ]);
+        const cvTrans = await cvTransRes.json();
+        const quizTrans = await quizTransRes.json();
+
+        // Combine evaluations: merge per_question arrays, average scores
+        const combinedPerQuestion = [
+          ...(cvEval.per_question || []),
+          ...(quizEval.per_question || []),
+        ];
+        evalData = {
+          overall_score: Math.round((cvEval.overall_score + quizEval.overall_score) / 2),
+          communication_score: Math.round((cvEval.communication_score + quizEval.communication_score) / 2),
+          technical_score: Math.round((cvEval.technical_score + quizEval.technical_score) / 2),
+          hire_recommendation: cvEval.hire_recommendation,
+          top_strengths: [...(cvEval.top_strengths || []), ...(quizEval.top_strengths || [])].slice(0, 5),
+          areas_to_improve: [...(cvEval.areas_to_improve || []), ...(quizEval.areas_to_improve || [])].slice(0, 5),
+          summary: `CV Assessment: ${cvEval.summary || ''} Role Assessment: ${quizEval.summary || ''}`,
+          recommendation_summary: cvEval.recommendation_summary || quizEval.recommendation_summary || '',
+          improvement_points: [...(cvEval.improvement_points || []), ...(quizEval.improvement_points || [])].slice(0, 5),
+          per_question: combinedPerQuestion,
+        };
+
+        // Combine transcripts — normalize quiz transcript to conversation format
+        const quizAsConversation = (quizTrans.transcript || []).flatMap((entry: any) => [
+          { role: "interviewer", content: entry.question },
+          { role: "candidate", content: entry.answer || "" },
+        ]);
+        transData = {
+          ...cvTrans,
+          num_questions: 10,
+          questions_asked: 10,
+          conversation: [...(cvTrans.conversation || []), ...quizAsConversation],
+        };
+
+        console.log("Combined evaluation:", evalData);
+      } else {
+        // Standard single-session evaluation
+        const evalEndpoint = isRoleBased
+          ? `/api/quiz/${params.id}/evaluate`
+          : `/api/ai/v1/interviews/${params.id}/evaluate`;
+
+        console.log("Fetching evaluation from:", evalEndpoint);
+        const evalRes = await fetch(evalEndpoint);
+        if (!evalRes.ok) throw new Error("Failed to evaluate session");
+        evalData = await evalRes.json();
+        console.log("Evaluation data received:", evalData);
+
+        const transEndpoint = isRoleBased
+          ? `/api/quiz/${params.id}/transcript`
+          : `/api/ai/v1/interviews/${params.id}/transcript`;
+        const transRes = await fetch(transEndpoint);
+        transData = await transRes.json();
+        console.log("Transcript data received:", transData);
+      }
 
       // End nonverbal session and wait for session_report to arrive
       await endNonverbalSession(params.id);
@@ -249,7 +360,7 @@ export default function InterviewSessionPage() {
       // Post to Rails to create the Dashboard history
       const syncRes = await apiRequest("POST", "/api/v1/sessions/sync_ai_session", {
         sessionId: params.id,
-        quizMode: isRoleBased,
+        quizMode: isCompleteMode ? false : isRoleBased, // complete mode uses CV format for sync
         evaluation: evalData,
         transcript: transData,
         nonverbalReport: finalNonverbal
@@ -586,10 +697,16 @@ export default function InterviewSessionPage() {
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold mb-1">
-            {targetRole} Interview
+            {isCompleteMode ? "Complete Interview" : `${targetRole} Interview`}
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
             <Badge variant="secondary">AI Assisted</Badge>
+            {isCompleteMode && completePhase === 'cv' && (
+              <Badge>CV Phase</Badge>
+            )}
+            {isCompleteMode && completePhase === 'role' && (
+              <Badge variant="outline">Role Phase</Badge>
+            )}
             <span className="text-sm text-muted-foreground">
               Question {questionsAsked} of {numQuestions}
             </span>
