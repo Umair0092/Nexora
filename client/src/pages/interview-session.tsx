@@ -28,10 +28,15 @@ export default function InterviewSessionPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
+  // Get interview type from URL query params
+  const searchParams = new URLSearchParams(window.location.search);
+  const interviewType = searchParams.get('type') || 'cv'; // 'role' or 'cv'
+  const isRoleBased = interviewType === 'role';
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<BlobPart[]>([]);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const [currentQuestionText, setCurrentQuestionText] = useState("");
   const [questionsAsked, setQuestionsAsked] = useState(1);
@@ -43,15 +48,27 @@ export default function InterviewSessionPage() {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isMicOn, setIsMicOn] = useState(false);
   const [behaviorStatus, setBehaviorStatus] = useState<"good" | "warning">("good");
+  const [attentionScore, setAttentionScore] = useState<number | null>(null);
+  const [attentionState, setAttentionState] = useState<string>("ATTENTIVE");
+  const [nonverbalReport, setNonverbalReport] = useState<any>(null);
+  
+  // Nonverbal refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const frameIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Fetch initial transcript directly from FastAPI
+  // Fetch initial transcript - use different API based on interview type
   const { data: transcriptData, isLoading } = useQuery<any>({
-    queryKey: [`/api/ai/v1/interviews/${params.id}/transcript`],
+    queryKey: [isRoleBased ? `/api/quiz/${params.id}/transcript` : `/api/ai/v1/interviews/${params.id}/transcript`],
     queryFn: async () => {
-      const res = await fetch(`/api/ai/v1/interviews/${params.id}/transcript`);
+      const endpoint = isRoleBased 
+        ? `/api/quiz/${params.id}/transcript`
+        : `/api/ai/v1/interviews/${params.id}/transcript`;
+      const res = await fetch(endpoint);
       if (!res.ok) throw new Error("Could not fetch session");
       return res.json();
     },
@@ -59,7 +76,24 @@ export default function InterviewSessionPage() {
   });
 
   useEffect(() => {
-    if (transcriptData && transcriptData.conversation) {
+    if (!transcriptData) return;
+
+    if (isRoleBased) {
+      // Quiz API format
+      const trans = transcriptData.transcript || [];
+      const currentQ = trans[transcriptData.questions_asked] || trans[trans.length - 1];
+      if (currentQ && currentQ.question) {
+        setCurrentQuestionText(currentQ.question);
+        if (!currentQuestionText) {
+          speakQuestion(currentQ.question);
+        }
+      }
+      setQuestionsAsked(transcriptData.is_complete ? transcriptData.questions_asked : transcriptData.questions_asked + 1);
+      setNumQuestions(transcriptData.num_questions);
+      setIsComplete(transcriptData.is_complete);
+      setTargetRole(transcriptData.target_role);
+    } else {
+      // AI Interview API format
       const conv = transcriptData.conversation;
       const lastQ = conv.filter((msg: any) => msg.role === "interviewer").pop();
       if (lastQ) {
@@ -71,12 +105,16 @@ export default function InterviewSessionPage() {
       setIsComplete(transcriptData.is_complete);
       setTargetRole(transcriptData.target_role);
     }
-  }, [transcriptData]);
+  }, [transcriptData, isRoleBased]);
 
-  // Submission mutation to FastAPI
+  // Submission mutation - use different API based on interview type
   const submitAnswerMutation = useMutation({
     mutationFn: async (answerText: string) => {
-      const res = await fetch(`/api/ai/v1/interviews/${params.id}/answer`, {
+      const endpoint = isRoleBased
+        ? `/api/quiz/${params.id}/answer`
+        : `/api/ai/v1/interviews/${params.id}/answer`;
+      
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answer: answerText }),
@@ -89,10 +127,10 @@ export default function InterviewSessionPage() {
         setIsComplete(true);
         syncToRailsMutation.mutate();
       } else {
-        setCurrentQuestionText(data.next_question);
+        const nextQuestion = data.next_question;
+        setCurrentQuestionText(nextQuestion);
         setQuestionsAsked(data.questions_asked);
-        // Speak next question
-        speakQuestion(data.next_question);
+        speakQuestion(nextQuestion);
       }
     },
     onError: () => {
@@ -104,29 +142,98 @@ export default function InterviewSessionPage() {
     },
   });
 
+  // Nonverbal WebSocket connection
+  const connectNonverbal = useCallback((sessionId: string) => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/nonverbal`;
+    const ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      frameIntervalRef.current = setInterval(() => {
+        if (!videoRef.current || !canvasRef.current || ws.readyState !== WebSocket.OPEN) return;
+        const ctx = canvasRef.current.getContext("2d");
+        canvasRef.current.width = 320;
+        canvasRef.current.height = 240;
+        ctx?.drawImage(videoRef.current, 0, 0, 320, 240);
+        const b64 = canvasRef.current.toDataURL("image/jpeg", 0.7).split(",")[1];
+        ws.send(JSON.stringify({ type: "frame", sessionId, timestamp: Date.now() / 1000, frameData: b64 }));
+      }, 500);
+    };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "result" && msg.faceDetected) {
+        setAttentionScore(msg.attentionScore);
+        setAttentionState(msg.attentionState);
+        setBehaviorStatus(msg.attentionState === "ATTENTIVE" ? "good" : "warning");
+      }
+      if (msg.type === "session_report") {
+        setNonverbalReport(msg);
+      }
+    };
+    ws.onerror = () => {
+        console.warn("Nonverbal WS connection failed");
+    };
+    wsRef.current = ws;
+  }, []);
+
+  const endNonverbalSession = (sessionId: string) => {
+    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "end_session", sessionId }));
+    }
+  };
+
   // Sync to Rails mutation
   const syncToRailsMutation = useMutation({
     mutationFn: async () => {
-      // First, get the evaluation from FastAPI
-      const evalRes = await fetch(`/api/ai/v1/interviews/${params.id}/evaluate`);
-      if (!evalRes.ok) throw new Error("Failed to evaluate AI session");
+      // Get evaluation from the appropriate API
+      const evalEndpoint = isRoleBased
+        ? `/api/quiz/${params.id}/evaluate`
+        : `/api/ai/v1/interviews/${params.id}/evaluate`;
+      
+      console.log("Fetching evaluation from:", evalEndpoint);
+      const evalRes = await fetch(evalEndpoint);
+      if (!evalRes.ok) throw new Error("Failed to evaluate session");
       const evalData = await evalRes.json();
+      console.log("Evaluation data received:", evalData);
 
       // Get the transcript
-      const transRes = await fetch(`/api/ai/v1/interviews/${params.id}/transcript`);
+      const transEndpoint = isRoleBased
+        ? `/api/quiz/${params.id}/transcript`
+        : `/api/ai/v1/interviews/${params.id}/transcript`;
+      const transRes = await fetch(transEndpoint);
       const transData = await transRes.json();
+      console.log("Transcript data received:", transData);
 
-      // Post both to Rails to create the Dashboard history
+      // End nonverbal and get report
+      endNonverbalSession(params.id);
+      
+      // Wait a moment for the nonverbalReport to arrive via WS
+      let finalNonverbal = nonverbalReport;
+      if (!finalNonverbal) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          finalNonverbal = nonverbalReport;
+      }
+
+      console.log("Syncing to Rails with evaluation:", {
+        overall_score: evalData.overall_score,
+        communication_score: evalData.communication_score,
+        technical_score: evalData.technical_score,
+        per_question_count: evalData.per_question?.length || 0
+      });
+
+      // Post to Rails to create the Dashboard history
       const syncRes = await apiRequest("POST", "/api/v1/sessions/sync_ai_session", {
         sessionId: params.id,
+        quizMode: isRoleBased,
         evaluation: evalData,
-        transcript: transData
+        transcript: transData,
+        nonverbalReport: finalNonverbal
       });
       return syncRes.json();
     },
     onSuccess: (syncData) => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions"] });
-      setLocation(`/report/${syncData.report_id}`); // Route to the Rails report
+      setLocation(`/report/${syncData.report_id}`);
     },
     onError: () => {
       toast({
@@ -149,6 +256,7 @@ export default function InterviewSessionPage() {
       }
       setIsCameraOn(true);
       setIsMicOn(true);
+      connectNonverbal(params.id);
     } catch (error) {
       toast({
         title: "Camera Access Required",
@@ -165,45 +273,142 @@ export default function InterviewSessionPage() {
     }
     setIsCameraOn(false);
     setIsMicOn(false);
+    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+    if (wsRef.current) wsRef.current.close();
   }, []);
 
   const startRecording = useCallback(() => {
-    if (!mediaStreamRef.current) return;
+    if (!mediaStreamRef.current) {
+      console.error("No media stream available");
+      return;
+    }
+    
+    // Check if audio tracks exist
+    const audioTracks = mediaStreamRef.current.getAudioTracks();
+    if (audioTracks.length === 0) {
+      console.error("No audio tracks available in media stream");
+      toast({
+        title: "Microphone Error",
+        description: "No audio tracks detected. Please check your microphone.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    console.log("Audio tracks available:", audioTracks.map(t => ({
+      label: t.label,
+      enabled: t.enabled,
+      muted: t.muted,
+      readyState: t.readyState
+    })));
+    
     try {
-      const recorder = new MediaRecorder(mediaStreamRef.current);
+      // Create a fresh MediaStream with only audio tracks for recording
+      const audioOnlyStream = new MediaStream(audioTracks);
+      console.log("Created audio-only stream");
+      
+      // Create MediaRecorder with NO options - let browser use defaults
+      const recorder = new MediaRecorder(audioOnlyStream);
       audioChunksRef.current = [];
+      
+      console.log("MediaRecorder created, state:", recorder.state);
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
+        if (e.data && e.data.size > 0) {
+          console.log("Audio chunk received, size:", e.data.size);
           audioChunksRef.current.push(e.data);
         }
       };
 
-      recorder.start();
+      recorder.onerror = (e) => {
+        console.error("MediaRecorder error:", e);
+      };
+
+      recorder.onstart = () => {
+        console.log("MediaRecorder started successfully");
+        setIsRecording(true);
+      };
+
+      // Start with timeslice to collect data periodically
+      console.log("Attempting to start MediaRecorder with timeslice...");
+      recorder.start(1000);
       mediaRecorderRef.current = recorder;
-      setIsRecording(true);
     } catch (e) {
-      console.error("MediaRecorder start failed", e);
+      console.error("MediaRecorder initialization failed:", e);
+      
+      // Try one more time with absolutely no options and no timeslice
+      try {
+        console.log("Retry: attempting basic MediaRecorder...");
+        const audioTracks = mediaStreamRef.current.getAudioTracks();
+        const audioOnlyStream = new MediaStream(audioTracks);
+        const recorder = new MediaRecorder(audioOnlyStream);
+        audioChunksRef.current = [];
+        
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+        
+        recorder.onstart = () => {
+          console.log("MediaRecorder started (fallback mode)");
+          setIsRecording(true);
+        };
+        
+        // Start without ANY parameters
+        recorder.start();
+        mediaRecorderRef.current = recorder;
+      } catch (e2) {
+        console.error("Fallback MediaRecorder also failed:", e2);
+        toast({
+          title: "Recording Error",
+          description: "Your browser doesn't support audio recording. Please try a different browser.",
+          variant: "destructive",
+        });
+      }
     }
-  }, []);
+  }, [toast]);
 
   const stopRecordingAndGetBlob = (): Promise<Blob | null> => {
     return new Promise((resolve) => {
-      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+      if (!mediaRecorderRef.current) {
+        console.log("No MediaRecorder instance");
+        resolve(null);
+        return;
+      }
+
+      const state = mediaRecorderRef.current.state;
+      if (state === "inactive") {
+        console.log("MediaRecorder already inactive");
         resolve(null);
         return;
       }
 
       mediaRecorderRef.current.onstop = () => {
         setIsRecording(false);
+        console.log("Recording stopped, chunks collected:", audioChunksRef.current.length);
+        
         if (audioChunksRef.current.length > 0) {
-          resolve(new Blob(audioChunksRef.current));
+          // Calculate total size
+          const totalSize = audioChunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0);
+          console.log("Total audio data size:", totalSize, "bytes");
+          
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          console.log("Audio blob created, size:", blob.size);
+          resolve(blob);
         } else {
+          console.log("No audio chunks captured - possible silence or too short recording");
           resolve(null);
         }
       };
 
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.error("Error stopping recorder:", e);
+        setIsRecording(false);
+        resolve(null);
+      }
     });
   };
 
@@ -256,23 +461,34 @@ export default function InterviewSessionPage() {
     const audioBlob = await stopRecordingAndGetBlob();
     let text = "No response recorded";
 
-    if (audioBlob) {
+    if (audioBlob && audioBlob.size > 0) {
        try {
+          console.log("Sending audio for transcription, size:", audioBlob.size);
           const formData = new FormData();
           formData.append("file", audioBlob, "answer.webm");
           const res = await fetch("/api/ai/v1/transcribe", { method: "POST", body: formData });
           const data = await res.json();
-          if (data.text) text = data.text;
+          console.log("Transcription response:", data);
+          if (data.text && data.text.trim()) {
+            text = data.text;
+          } else if (data.detail) {
+            console.error("Transcription failed:", data.detail);
+          }
        } catch (e) {
-          console.error(e);
+          console.error("Transcription error:", e);
        }
+    } else {
+      console.log("No audio blob or empty blob, size:", audioBlob?.size || 0);
     }
+
+    console.log("Submitting answer:", text);
 
     try {
       await submitAnswerMutation.mutateAsync(text);
       setElapsedTime(0);
     } finally {
       setIsSubmitting(false);
+      // Recording should restart automatically via the effect at line ~337
     }
   };
 
@@ -376,6 +592,7 @@ export default function InterviewSessionPage() {
                 playsInline
                 className="w-full h-full object-cover"
               />
+              <canvas ref={canvasRef} className="hidden" />
 
               {!isCameraOn && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
@@ -386,12 +603,17 @@ export default function InterviewSessionPage() {
                 </div>
               )}
 
-              <div
-                className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors ${
-                  behaviorStatus === "good" ? "bg-green-500/90 text-white" : "bg-red-500/90 text-white animate-pulse"
-                }`}
-              >
-                {behaviorStatus === "good" ? <><CheckCircle className="w-4 h-4" /> Good posture</> : <><AlertCircle className="w-4 h-4" /> Adjust posture</>}
+              <div className="absolute top-4 right-4 flex items-center gap-2 flex-col items-end">
+                <div
+                  className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors ${
+                    behaviorStatus === "good" ? "bg-green-500/90 text-white" : "bg-red-500/90 text-white animate-pulse"
+                  }`}
+                >
+                  {behaviorStatus === "good" ? <><CheckCircle className="w-4 h-4" /> {attentionState}</> : <><AlertCircle className="w-4 h-4" /> {attentionState}</>}
+                </div>
+                {attentionScore !== null && (
+                   <Badge className="bg-primary/90">Attention: {Math.round(attentionScore)}%</Badge>
+                )}
               </div>
 
               <div className="absolute bottom-4 left-4 flex items-center gap-2">

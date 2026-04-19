@@ -3,13 +3,16 @@ module Api
     class InterviewSessionsController < ApplicationController
       def index
         @sessions = current_user.interview_sessions.includes(:domain).order(started_at: :desc)
-        render json: @sessions.as_json(include: :domain)
+        sessions_data = @sessions.as_json(include: :domain).map do |session|
+          session.deep_transform_keys { |key| key.to_s.camelize(:lower) }
+        end
+        render json: sessions_data
       end
 
       def show
         @session = current_user.interview_sessions.includes(:domain, answers: :question).find(params[:id])
         
-        render json: @session.as_json(
+        session_data = @session.as_json(
           include: {
             domain: {},
             answers: {
@@ -18,7 +21,9 @@ module Api
           }
         ).merge({
           questions: @session.answers.map { |a| a.question.as_json }
-        })
+        }).deep_transform_keys { |key| key.to_s.camelize(:lower) }
+        
+        render json: session_data
       end
 
       def create
@@ -43,8 +48,6 @@ module Api
       def stats
         total_sessions = current_user.interview_sessions.count
         completed_sessions = current_user.interview_sessions.where(status: 'completed').count
-        # Calculate average score from Reports, or assume 0 if no reports
-        # Using a raw SQL or join might be better but let's stick to simple
         average_score = current_user.reports.average(:overall_score).to_f.round(1) || 0
 
         render json: {
@@ -67,7 +70,6 @@ module Api
           overall_score: overall_score
         )
 
-        # Generate Report (Mock for now, normally would call AI service)
         report = Report.create(
           session_id: @session.id,
           user: current_user,
@@ -81,6 +83,7 @@ module Api
 
         render json: { session: @session, report: report }
       end
+
       def sync_ai_session
         evaluation = params[:evaluation] # from evaluate endpoint
         
@@ -130,7 +133,7 @@ module Api
           recommendations: evaluation['improvement_points'] || []
         )
         
-        render json: { success: true, session_id: @session.id, report_id: @session.id }
+        render json: { success: true, session_id: @session.id, report_id: @report.id }
       rescue => e
         render json: { error: e.message }, status: :unprocessable_entity
       end
@@ -138,8 +141,6 @@ module Api
       private
 
       def session_params
-        # Frontend sends camelCase domainId, we need snake_case domain_id for the model
-        # Also setting a default for total_questions
         p = params.permit(:domainId, :difficulty, :language)
         {
           domain_id: p[:domainId],

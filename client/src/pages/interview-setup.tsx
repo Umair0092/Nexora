@@ -27,7 +27,7 @@ import {
   User,
   Upload,
   Loader2,
-  Save
+  Save,
 } from "lucide-react";
 import type { Domain } from "@shared/schema";
 
@@ -40,6 +40,23 @@ const domainIcons: Record<string, any> = {
   "business": Briefcase,
   "healthcare": Stethoscope,
   "legal": Scale,
+};
+
+// Map domains to quiz API categories
+const domainToQuizCategory: Record<string, string> = {
+  "Software Engineering": "General Software Engineering",
+  "Product Management": "General Software Engineering",
+  "Data Science": "AI (Data Science)",
+  "Marketing": "General Software Engineering",
+  "Finance": "General Software Engineering",
+  "Human Resources": "General Software Engineering",
+};
+
+// Map difficulty levels
+const difficultyMapping: Record<string, string> = {
+  "beginner": "easy",
+  "intermediate": "medium",
+  "advanced": "hard",
 };
 
 const difficulties = [
@@ -126,35 +143,46 @@ export default function InterviewSetup() {
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
-      let finalCandidate = candidateData;
-      let finalRole = targetRole;
-      
       if (interviewType === "role") {
-        finalCandidate = {
-          name: user?.username || "Candidate",
-          degree: "Not specified",
-          skills: [],
-          summary: `Applying for ${selectedDomain?.name || "General"} position`
-        };
-        finalRole = selectedDomain?.name || "Software Engineer";
+        // Use Quiz API for role-based interviews
+        const quizCategory = domainToQuizCategory[selectedDomain?.name || ""] || "General Software Engineering";
+        const quizDifficulty = difficultyMapping[selectedDifficulty] || "medium";
+        
+        const res = await fetch("/api/quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_role: quizCategory,
+            num_questions: 5,
+            difficulty: quizDifficulty,
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to start role-based interview");
+        return res.json();
       }
 
+      // CV-based uses existing AI interview service
       const res = await fetch("/api/ai/v1/interviews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          candidate_data: finalCandidate,
-          target_role: finalRole,
+          candidate_data: candidateData,
+          target_role: targetRole,
           num_questions: 5
         }),
       });
-      if (!res.ok) throw new Error("Failed to start AI interview");
+      if (!res.ok) throw new Error("Failed to start CV-based interview");
       return res.json();
     },
     onSuccess: (data) => {
       // data.session_id is the FastAPI session UUID
-      // redirect to session page and attach language so session page knows
-      setLocation(`/interview/session/${data.session_id}?lang=${selectedLanguage}`);
+      if (interviewType === "role") {
+        // Role-based uses quiz session
+        setLocation(`/interview/session/${data.session_id}?type=role&lang=${selectedLanguage}`);
+      } else {
+        // CV-based uses AI interview session
+        setLocation(`/interview/session/${data.session_id}?type=cv&lang=${selectedLanguage}`);
+      }
     },
     onError: () => {
       toast({
@@ -165,8 +193,8 @@ export default function InterviewSetup() {
     },
   });
 
-  const steps: Step[] = interviewType === "cv" 
-    ? ["type", "cv_setup", "language", "confirm"] 
+  const steps: Step[] = interviewType === "cv"
+    ? ["type", "cv_setup", "language", "confirm"]
     : ["type", "domain", "difficulty", "language", "confirm"];
 
   const currentStepIndex = steps.indexOf(step);
@@ -461,11 +489,19 @@ export default function InterviewSetup() {
               </div>
               <div className="flex justify-between border-b pb-4">
                 <span className="text-muted-foreground">Target Role</span>
-                <span className="font-semibold">{interviewType === "cv" ? targetRole : selectedDomain?.name}</span>
+                <span className="font-semibold">
+                  {interviewType === "cv" ? targetRole : selectedDomain?.name}
+                </span>
+              </div>
+              <div className="flex justify-between border-b pb-4">
+                <span className="text-muted-foreground">Difficulty</span>
+                <span className="font-semibold capitalize">{selectedDifficulty}</span>
               </div>
               <div className="flex justify-between pb-2">
                 <span className="text-muted-foreground">Language</span>
-                <span className="font-semibold">{languages.find(l => l.code === selectedLanguage)?.name}</span>
+                <span className="font-semibold">
+                  {languages.find(l => l.code === selectedLanguage)?.name}
+                </span>
               </div>
             </CardContent>
           </Card>

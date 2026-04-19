@@ -15,11 +15,38 @@ declare module "http" {
 }
 
 
+// Proxy targets from environment variables
+const QUIZ_SERVICE_URL = process.env.AI_QUIZ_URL || "http://127.0.0.1:8001";
+const AI_SERVICE_URL = process.env.AI_RESUME_URL || "http://127.0.0.1:8000";
+const NONVERBAL_SERVICE_URL = process.env.AI_NONVERBAL_URL || "http://127.0.0.1:8765";
+const RAILS_BACKEND_URL = process.env.RAILS_BACKEND_URL || "http://127.0.0.1:3000";
+
+// Proxy for Nonverbal Cues WebSocket Service
+const nonverbalProxy = createProxyMiddleware({
+  pathFilter: "/ws/nonverbal",
+  target: NONVERBAL_SERVICE_URL,
+  ws: true,
+  changeOrigin: true,
+});
+app.use(nonverbalProxy);
+
+// Proxy for Interview Feedback Quiz Service (FastAPI)
+
+// Proxy for Interview Feedback Quiz Service (FastAPI)
+app.use(
+  createProxyMiddleware({
+    pathFilter: "/api/quiz",
+    target: QUIZ_SERVICE_URL,
+    changeOrigin: true,
+    pathRewrite: { "^/api/quiz": "/api/v1/quiz" },
+  })
+);
+
 // Proxy for AI service (FastAPI)
 app.use(
   createProxyMiddleware({
     pathFilter: "/api/ai",
-    target: "http://127.0.0.1:8000",
+    target: AI_SERVICE_URL,
     changeOrigin: true,
     pathRewrite: {
       "^/api/ai": "/api",
@@ -30,8 +57,8 @@ app.use(
 // Proxy for Main Backend (Rails)
 app.use(
   createProxyMiddleware({
-    pathFilter: (pathname: string) => pathname.startsWith("/api") && !pathname.startsWith("/api/ai"),
-    target: "http://127.0.0.1:3000",
+    pathFilter: (pathname: string) => pathname.startsWith("/api") && !pathname.startsWith("/api/ai") && !pathname.startsWith("/api/quiz"),
+    target: RAILS_BACKEND_URL,
     changeOrigin: true,
   })
 );
@@ -118,4 +145,11 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  // Handle WebSocket upgrades for nonverbal cues
+  httpServer.on("upgrade", (req, socket, head) => {
+    if (req.url?.startsWith("/ws/nonverbal")) {
+      nonverbalProxy.upgrade(req, socket as any, head);
+    }
+  });
 })();

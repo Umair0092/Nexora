@@ -1,0 +1,94 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    env_file: .env.docker
+    environment:
+      POSTGRES_USER: nexora
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: nexora_production
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexora -d nexora_production"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rails:
+    restart: always
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
+    env_file: .env.docker
+    environment:
+      PGHOST: db
+      PGUSER: nexora
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "3000"
+
+  ai-resume:
+    restart: always
+    build:
+      context: ./server/services/ai/resumeaiservice
+      dockerfile: Dockerfile
+    env_file: .env.docker
+    expose:
+      - "8000"
+
+  ai-feedback:
+    restart: always
+    build:
+      context: ./server/services/ai/interview_feedback
+      dockerfile: Dockerfile
+    env_file: .env.docker
+    expose:
+      - "8001"
+
+  ai-nonverbal:
+    restart: always
+    build:
+      context: ./server/services/ai/nonverbal_cues
+      dockerfile: Dockerfile
+    env_file: .env.docker
+    expose:
+      - "8765"
+
+  gateway:
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env.docker
+    ports:
+      - "5001:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+      rails:
+        condition: service_started
+      ai-resume:
+        condition: service_started
+      ai-feedback:
+        condition: service_started
+      ai-nonverbal:
+        condition: service_started
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: always
+    env_file: .env.docker
+    command:
+      - "http"
+      - "gateway:5000"
+    depends_on:
+      gateway:
+        condition: service_started
+
+volumes:
+  postgres_data:
