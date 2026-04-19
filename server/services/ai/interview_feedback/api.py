@@ -16,21 +16,22 @@ import uuid
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from session import QuizSession, EvaluationResult, QuestionEvaluation
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", 60))
+SESSION_TTL_MINUTES = int(os.getenv("FEEDBACK_SESSION_TTL_MINUTES", 60))
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "new_interview_questions.csv")
 
@@ -96,6 +97,7 @@ class CreateQuizRequest(BaseModel):
     target_role: str = Field(..., description="One of the available categories")
     num_questions: int = Field(default=5, ge=1, le=20, description="Number of questions (1–20)")
     difficulty: str = Field(default="medium", description="easy | medium | hard")
+    language: Literal["en", "ur"] = Field(default="en", description="Quiz language: 'en' for English, 'ur' for Urdu")
 
 
 class CreateQuizResponse(BaseModel):
@@ -106,6 +108,7 @@ class CreateQuizResponse(BaseModel):
     first_question: str
     questions_asked: int
     is_complete: bool
+    language: str
 
 
 class AnswerRequest(BaseModel):
@@ -129,6 +132,7 @@ class TranscriptResponse(BaseModel):
     session_id: str
     target_role: str
     difficulty: str
+    language: str
     questions_asked: int
     num_questions: int
     is_complete: bool
@@ -148,6 +152,7 @@ class QuestionEvaluationOut(BaseModel):
 class EvaluationResponse(BaseModel):
     session_id: str
     target_role: str
+    language: str
     questions_asked: int
     is_complete: bool
     overall_score: int
@@ -262,11 +267,12 @@ def create_quiz(body: CreateQuizRequest):
             role=body.target_role,
             num_questions=body.num_questions,
             difficulty=body.difficulty.lower(),
+            language=body.language,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    first_question = quiz.current_question
+    first_question = quiz.get_translated_question(quiz.current_question)
     quiz.questions_asked = 1  # mark first question as "asked"
 
     session_id = str(uuid.uuid4())
@@ -280,6 +286,7 @@ def create_quiz(body: CreateQuizRequest):
         "first_question": first_question,
         "questions_asked": quiz.questions_asked,
         "is_complete": quiz.is_complete,
+        "language": quiz.language,
     }
 
 
@@ -329,9 +336,10 @@ def submit_answer(session_id: str, body: AnswerRequest):
         )
 
     next_q, is_complete = quiz.submit_answer(body.answer)
+    translated_q = quiz.get_translated_question(next_q) if next_q else None
 
     return {
-        "next_question": next_q,
+        "next_question": translated_q,
         "questions_asked": quiz.questions_asked,
         "num_questions": quiz.num_questions,
         "is_complete": is_complete,
@@ -359,6 +367,7 @@ def get_transcript(session_id: str):
         "session_id": session_id,
         "target_role": quiz.target_role,
         "difficulty": quiz.difficulty,
+        "language": quiz.language,
         "questions_asked": quiz.questions_asked - 1,  # answered = asked - 1 (current unanswered)
         "num_questions": quiz.num_questions,
         "is_complete": quiz.is_complete,
@@ -437,6 +446,7 @@ def evaluate_quiz(session_id: str):
     return {
         "session_id": session_id,
         "target_role": quiz.target_role,
+        "language": quiz.language,
         "questions_asked": answered,
         "is_complete": quiz.is_complete,
         "overall_score": result.overall_score,

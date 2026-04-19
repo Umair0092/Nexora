@@ -2,11 +2,12 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import tempfile
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 
@@ -49,10 +50,10 @@ def pdf_to_structure(file):
 
     try:
         llm = ChatOpenAI(
-            model=os.getenv("GEMINI_MODEL", "google/gemini-2.0-flash-001"),
+            model=os.getenv("RESUME_GEMINI_MODEL", "google/gemini-2.0-flash-001"),
             temperature=0.1,
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            api_key=os.getenv("RESUME_OPENROUTER_API_KEY"),
+            base_url=os.getenv("RESUME_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         )
     except Exception as e:
         raise ValueError(f"Failed to initialize AI model: {str(e)}")

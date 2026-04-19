@@ -17,15 +17,16 @@ import asyncio
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ─── Import project modules ──────────────────────────────────────────────────
 from helper import pdf_to_structure, Candidate, WorkExperience, Education
@@ -34,8 +35,8 @@ from session import Interview, EvaluationResult, QuestionEvaluation
 # ─── In-memory session store ─────────────────────────────────────────────────
 # { session_id: { "interview": Interview, "last_accessed": datetime } }
 SESSION_STORE: dict = {}
-SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", 60))
-MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", 10))
+SESSION_TTL_MINUTES = int(os.getenv("RESUME_SESSION_TTL_MINUTES", 60))
+MAX_FILE_SIZE_MB = int(os.getenv("RESUME_MAX_FILE_SIZE_MB", 10))
 
 VALID_ROLES = [
     "Data Scientist",
@@ -103,12 +104,14 @@ class ParseResumeResponse(BaseModel):
     candidate_data: CandidateOut
     target_role: str = Field(default="Data Scientist", description="Change to one of: Data Scientist, ML Engineer, Data Analyst, AI Engineer, Software Engineer")
     num_questions: int = Field(default=10, description="Change to your desired number of questions (5–15)")
+    language: Literal["en", "ur"] = Field(default="en", description="Interview language: 'en' for English, 'ur' for Urdu")
 
 
 class CreateInterviewRequest(BaseModel):
     candidate_data: CandidateOut
     target_role: str = Field(default="Data Scientist", description="One of: Data Scientist, ML Engineer, Data Analyst, AI Engineer, Software Engineer")
     num_questions: int = Field(default=10, ge=5, le=15, description="Number of interview questions (5–15)")
+    language: Literal["en", "ur"] = Field(default="en", description="Interview language: 'en' for English, 'ur' for Urdu")
 
 
 class CreateInterviewResponse(BaseModel):
@@ -117,6 +120,7 @@ class CreateInterviewResponse(BaseModel):
     questions_asked: int
     num_questions: int
     is_complete: bool
+    language: str
 
 
 class AnswerRequest(BaseModel):
@@ -138,6 +142,7 @@ class ConversationMessage(BaseModel):
 class TranscriptResponse(BaseModel):
     session_id: str
     target_role: str
+    language: str
     questions_asked: int
     num_questions: int
     is_complete: bool
@@ -256,7 +261,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
-
 
 
 @app.post(
@@ -415,6 +419,7 @@ def create_interview(body: CreateInterviewRequest):
             candidate_data=body.candidate_data,
             target_role=body.target_role,
             num_questions=body.num_questions,
+            language=body.language,
         )
         opening_question = interview.start_interview()
     except RuntimeError as e:
@@ -440,6 +445,7 @@ def create_interview(body: CreateInterviewRequest):
         "questions_asked": interview.questions_asked,
         "num_questions": interview.num_questions,
         "is_complete": interview.is_complete,
+        "language": interview.language,
     }
 
 
@@ -547,6 +553,7 @@ def get_transcript(session_id: str):
     return {
         "session_id": session_id,
         "target_role": interview.target_role,
+        "language": interview.language,
         "questions_asked": interview.questions_asked,
         "num_questions": interview.num_questions,
         "is_complete": interview.is_complete,

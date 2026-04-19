@@ -1,20 +1,20 @@
 # ─────────────────────────────────────────────
 # GAZE thresholds (degrees)
 # ─────────────────────────────────────────────
-GAZE_ATTENTIVE_YAW        = 15    # yaw  < 15°  → looking at screen
-GAZE_ATTENTIVE_PITCH      = 12    # pitch < 12° → looking at screen
-GAZE_PARTIAL_YAW          = 30    # yaw  15–30° → glancing away
-GAZE_PARTIAL_PITCH        = 25    # pitch 12–25°
+GAZE_ATTENTIVE_YAW        = 12    # yaw  < 12°  → looking at screen
+GAZE_ATTENTIVE_PITCH      = 10    # pitch < 10° → looking at screen
+GAZE_PARTIAL_YAW          = 22    # yaw  12–22° → glancing away
+GAZE_PARTIAL_PITCH        = 18    # pitch 10–18°
 GAZE_AWAY_DURATION_SEC    = 2.0   # sustained away before penalty
 
 # ─────────────────────────────────────────────
 # HEAD POSE thresholds (degrees from transform matrix)
 # ─────────────────────────────────────────────
-POSE_FORWARD_YAW          = 15    # ±15° yaw   → forward
-POSE_FORWARD_PITCH        = 12    # ±12° pitch → forward
-POSE_PARTIAL_YAW          = 45
-POSE_PARTIAL_PITCH        = 35
-HEAD_DOWN_PITCH           = 30    # pitch > 30° down → looking at phone
+POSE_FORWARD_YAW          = 12    # ±12° yaw   → forward
+POSE_FORWARD_PITCH        = 10    # ±10° pitch → forward
+POSE_PARTIAL_YAW          = 25    # was 45 — 45° is almost profile view
+POSE_PARTIAL_PITCH        = 20    # was 35 — 35° is clearly looking down
+HEAD_DOWN_PITCH           = 20    # pitch > 20° down → looking at phone
 
 # ─────────────────────────────────────────────
 # BLINK thresholds (blinks per minute)
@@ -53,8 +53,8 @@ WEIGHT_EXPRESSION         = 15
 # ─────────────────────────────────────────────
 # ATTENTION STATE thresholds (out of 100)
 # ─────────────────────────────────────────────
-ATTENTIVE_THRESHOLD       = 70
-PARTIAL_THRESHOLD         = 50
+ATTENTIVE_THRESHOLD       = 75
+PARTIAL_THRESHOLD         = 55
 # < 55 → DISENGAGED
 
 # ─────────────────────────────────────────────

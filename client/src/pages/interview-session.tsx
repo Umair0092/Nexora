@@ -28,10 +28,11 @@ export default function InterviewSessionPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  // Get interview type from URL query params
+  // Get interview type and language from URL query params
   const searchParams = new URLSearchParams(window.location.search);
   const interviewType = searchParams.get('type') || 'cv'; // 'role' or 'cv'
   const isRoleBased = interviewType === 'role';
+  const interviewLang = searchParams.get('lang') || 'en'; // 'en' or 'ur'
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -50,8 +51,8 @@ export default function InterviewSessionPage() {
   const [behaviorStatus, setBehaviorStatus] = useState<"good" | "warning">("good");
   const [attentionScore, setAttentionScore] = useState<number | null>(null);
   const [attentionState, setAttentionState] = useState<string>("ATTENTIVE");
-  const [nonverbalReport, setNonverbalReport] = useState<any>(null);
-  
+  const nonverbalReportRef = useRef<any>(null);
+
   // Nonverbal refs
   const wsRef = useRef<WebSocket | null>(null);
   const frameIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -160,13 +161,18 @@ export default function InterviewSessionPage() {
     };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
-      if (msg.type === "result" && msg.faceDetected) {
-        setAttentionScore(msg.attentionScore);
-        setAttentionState(msg.attentionState);
-        setBehaviorStatus(msg.attentionState === "ATTENTIVE" ? "good" : "warning");
+      if (msg.type === "result") {
+        if (msg.faceDetected) {
+          setAttentionScore(msg.attentionScore);
+          setAttentionState(msg.attentionState);
+          setBehaviorStatus(msg.attentionState === "ATTENTIVE" ? "good" : "warning");
+        } else {
+          setAttentionState("DISENGAGED");
+          setBehaviorStatus("warning");
+        }
       }
       if (msg.type === "session_report") {
-        setNonverbalReport(msg);
+        nonverbalReportRef.current = msg;
       }
     };
     ws.onerror = () => {
@@ -175,11 +181,31 @@ export default function InterviewSessionPage() {
     wsRef.current = ws;
   }, []);
 
-  const endNonverbalSession = (sessionId: string) => {
-    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "end_session", sessionId }));
-    }
+  const endNonverbalSession = (sessionId: string): Promise<void> => {
+    return new Promise((resolve) => {
+      if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        resolve();
+        return;
+      }
+      // Override onmessage to catch the session_report then resolve
+      const prevOnMessage = ws.onmessage;
+      const timeout = setTimeout(() => {
+        ws.onmessage = prevOnMessage;
+        resolve();
+      }, 3000); // give server up to 3s to respond
+      ws.onmessage = (e: MessageEvent) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "session_report") {
+          nonverbalReportRef.current = msg;
+          clearTimeout(timeout);
+          ws.onmessage = prevOnMessage;
+          resolve();
+        }
+      };
+      ws.send(JSON.stringify({ type: "end_session", sessionId }));
+    });
   };
 
   // Sync to Rails mutation
@@ -204,15 +230,14 @@ export default function InterviewSessionPage() {
       const transData = await transRes.json();
       console.log("Transcript data received:", transData);
 
-      // End nonverbal and get report
-      endNonverbalSession(params.id);
-      
-      // Wait a moment for the nonverbalReport to arrive via WS
-      let finalNonverbal = nonverbalReport;
-      if (!finalNonverbal) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          finalNonverbal = nonverbalReport;
+      // End nonverbal session and wait for session_report to arrive
+      await endNonverbalSession(params.id);
+      // Close the WS now that we have the report
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
       }
+      const finalNonverbal = nonverbalReportRef.current;
 
       console.log("Syncing to Rails with evaluation:", {
         overall_score: evalData.overall_score,
@@ -264,7 +289,7 @@ export default function InterviewSessionPage() {
         variant: "destructive",
       });
     }
-  }, [toast]);
+  }, [toast, connectNonverbal, params.id]);
 
   const stopCamera = useCallback(() => {
     if (mediaStreamRef.current) {
@@ -421,7 +446,7 @@ export default function InterviewSessionPage() {
     stopSpeaking();
     if (!text) return;
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
+    utterance.lang = interviewLang === "ur" ? "ur-PK" : "en-US";
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
@@ -498,7 +523,15 @@ export default function InterviewSessionPage() {
     stopSpeaking();
 
     const audioBlob = await stopRecordingAndGetBlob();
-    stopCamera();
+    // Stop frame capture immediately so we don't send black frames,
+    // but keep the WS open — syncToRailsMutation needs it for session_report.
+    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsCameraOn(false);
+    setIsMicOn(false);
 
     let text = "No response recorded";
     if (audioBlob) {

@@ -155,6 +155,7 @@ export default function InterviewSetup() {
             target_role: quizCategory,
             num_questions: 5,
             difficulty: quizDifficulty,
+            language: selectedLanguage || "en",
           }),
         });
         if (!res.ok) throw new Error("Failed to start role-based interview");
@@ -168,7 +169,8 @@ export default function InterviewSetup() {
         body: JSON.stringify({
           candidate_data: candidateData,
           target_role: targetRole,
-          num_questions: 5
+          num_questions: 5,
+          language: selectedLanguage || "en",
         }),
       });
       if (!res.ok) throw new Error("Failed to start CV-based interview");
