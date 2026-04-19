@@ -9,7 +9,7 @@ services:
   - type: web
     name: nexora-backend
     runtime: docker
-    rootDir: rails_server
+    rootDir: Backend
     plan: free
     region: frankfurt
     envVars:

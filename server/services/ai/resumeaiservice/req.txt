@@ -4,6 +4,7 @@ python-multipart
 langchain
 langchain-google-genai
 langchain-community
+langchain-openai
 pypdf
 pydantic
 python-dotenv

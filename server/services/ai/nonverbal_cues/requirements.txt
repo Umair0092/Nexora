@@ -1,0 +1,16 @@
+# ── Nonverbal Cues Service — relaxed dependencies ──────────────────────────────
+# Python 3.10+
+# Install: pip install -r requirements.txt
+
+fastapi
+uvicorn[standard]
+mediapipe
+opencv-python
+numpy
+scipy
+websockets
+
+# ── Transitive deps ──────────────────────────────────────────────────────────
+anyio
+httpx
+starlette

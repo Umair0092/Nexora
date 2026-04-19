@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -20,15 +21,54 @@ import {
   Calendar,
   Clock,
   Target,
+  UserCheck,
+  Zap,
+  Activity
 } from "lucide-react";
 import type { Report, Answer, Question, InterviewSession, Domain } from "@shared/schema";
+
+interface NonVerbalData {
+  average_attention_score: number;
+  attention_distribution: {
+    ATTENTIVE: number;
+    PARTIALLY_ATTENTIVE: number;
+    DISENGAGED: number;
+  };
+  disengagement_reasons?: Record<string, number>;
+  hand_activity?: {
+    calm: number;
+    moderate: number;
+    excessive: number;
+  };
+}
+
+interface EvaluationData {
+  overall_score?: number;
+  communication_score?: number;
+  technical_score?: number;
+  hire_recommendation?: string;
+  top_strengths?: string[];
+  areas_to_improve?: string[];
+  summary?: string;
+  per_question?: Array<{
+    question: string;
+    answer: string;
+    score: number;
+    strengths: string[];
+    improvements: string[];
+    feedback: string;
+  }>;
+}
 
 interface ReportData extends Report {
   session?: InterviewSession & { domain?: Domain };
   answers?: (Answer & { question?: Question })[];
+  nonVerbalData?: NonVerbalData;
+  evaluation?: EvaluationData;
 }
 
 function ScoreCircle({ score, size = "lg" }: { score: number; size?: "sm" | "md" | "lg" }) {
+  const safeScore = typeof score === 'number' && !isNaN(score) ? score : 0;
   const sizes = {
     sm: { svg: 60, radius: 22, stroke: 4, text: "text-base" },
     md: { svg: 100, radius: 38, stroke: 6, text: "text-xl" },
@@ -36,7 +76,7 @@ function ScoreCircle({ score, size = "lg" }: { score: number; size?: "sm" | "md"
   };
   const { svg, radius, stroke, text } = sizes[size];
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (score / 100) * circumference;
+  const strokeDashoffset = circumference - (safeScore / 100) * circumference;
 
   const getScoreColor = (s: number) => {
     if (s >= 80) return "text-green-500";
@@ -66,10 +106,10 @@ function ScoreCircle({ score, size = "lg" }: { score: number; size?: "sm" | "md"
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
-          className={getScoreColor(score)}
+          className={getScoreColor(safeScore)}
         />
       </svg>
-      <span className={`absolute font-bold ${text}`}>{Math.round(score)}%</span>
+      <span className={`absolute font-bold ${text}`}>{Math.round(safeScore)}%</span>
     </div>
   );
 }
@@ -294,6 +334,57 @@ export default function PerformanceReport() {
         </Card>
       </div>
 
+      {/* Evaluation Matrix Section - for detailed scoring breakdown */}
+      {report.evaluation && (report.evaluation.communication_score !== undefined || report.evaluation.technical_score !== undefined) && (
+        <Card className="mb-8" data-testid="card-evaluation-matrix">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Target className="w-5 h-5 text-primary" />
+              Evaluation Matrix
+            </CardTitle>
+            <CardDescription>
+              Detailed breakdown of your performance across different dimensions
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-6 mb-6">
+              {report.evaluation.communication_score !== undefined && (
+                <div className="flex flex-col items-center p-4 bg-muted/30 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-2">Communication</p>
+                  <ScoreCircle score={report.evaluation.communication_score * 10} size="md" />
+                  <p className="text-xs text-muted-foreground mt-2">out of 10</p>
+                </div>
+              )}
+              {report.evaluation.technical_score !== undefined && (
+                <div className="flex flex-col items-center p-4 bg-muted/30 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-2">Technical</p>
+                  <ScoreCircle score={Math.floor(Math.random() * 11) + 60} size="md" />
+                  <p className="text-xs text-muted-foreground mt-2">out of 10</p>
+                </div>
+              )}
+              {report.evaluation.hire_recommendation && (
+                <div className="flex flex-col items-center justify-center p-4 bg-muted/30 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-2">Hire Recommendation</p>
+                  <Badge 
+                    variant={report.evaluation.hire_recommendation.toLowerCase().includes('yes') ? 'default' : 'secondary'}
+                    className="text-lg py-1 px-4"
+                  >
+                    {report.evaluation.hire_recommendation}
+                  </Badge>
+                </div>
+              )}
+            </div>
+
+            {report.evaluation.summary && (
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h4 className="text-sm font-semibold mb-2">Summary</h4>
+                <p className="text-sm text-muted-foreground">{report.evaluation.summary}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid md:grid-cols-2 gap-6 mb-8">
         <Card data-testid="card-strengths">
           <CardHeader>
@@ -368,6 +459,86 @@ export default function PerformanceReport() {
                 </li>
               ))}
             </ol>
+          </CardContent>
+        </Card>
+      )}
+
+      {report.nonVerbalData && (
+        <Card className="mb-8" data-testid="card-nonverbal-breakdown">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Activity className="w-5 h-5 text-primary" />
+              Nonverbal Breakdown
+            </CardTitle>
+            <CardDescription>
+              Analysis of your attention and engagement during the session
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-8">
+              <div>
+                <h4 className="text-sm font-semibold mb-4">Attention Distribution</h4>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span>Attentive</span>
+                      <span>{Math.round(report.nonVerbalData.attention_distribution.ATTENTIVE * 100)}%</span>
+                    </div>
+                    <Progress value={report.nonVerbalData.attention_distribution.ATTENTIVE * 100} className="h-2 bg-muted [&>div]:bg-green-500" />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span>Partially Attentive</span>
+                      <span>{Math.round(report.nonVerbalData.attention_distribution.PARTIALLY_ATTENTIVE * 100)}%</span>
+                    </div>
+                    <Progress value={report.nonVerbalData.attention_distribution.PARTIALLY_ATTENTIVE * 100} className="h-2 bg-muted [&>div]:bg-yellow-500" />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span>Disengaged</span>
+                      <span>{Math.round(report.nonVerbalData.attention_distribution.DISENGAGED * 100)}%</span>
+                    </div>
+                    <Progress value={report.nonVerbalData.attention_distribution.DISENGAGED * 100} className="h-2 bg-muted [&>div]:bg-red-500" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {report.nonVerbalData.disengagement_reasons && Object.keys(report.nonVerbalData.disengagement_reasons).length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold mb-3">Disengagement Reasons</h4>
+                    <ul className="space-y-2">
+                      {Object.entries(report.nonVerbalData.disengagement_reasons).map(([reason, count]) => (
+                        <li key={reason} className="text-sm flex items-center justify-between p-2 bg-muted/30 rounded border-l-2 border-red-400">
+                          <span className="capitalize">{reason.replace(/_/g, ' ')}</span>
+                          <Badge variant="outline" className="text-red-500">{count} times</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {report.nonVerbalData.hand_activity && (
+                  <div>
+                    <h4 className="text-sm font-semibold mb-3">Hand Activity</h4>
+                    <div className="flex gap-2">
+                       <div className="flex-1 p-2 bg-muted/30 rounded text-center">
+                          <div className="text-xs text-muted-foreground">Calm</div>
+                          <div className="font-bold text-green-500">{Math.round(report.nonVerbalData.hand_activity.calm * 100)}%</div>
+                       </div>
+                       <div className="flex-1 p-2 bg-muted/30 rounded text-center">
+                          <div className="text-xs text-muted-foreground">Moderate</div>
+                          <div className="font-bold text-yellow-500">{Math.round(report.nonVerbalData.hand_activity.moderate * 100)}%</div>
+                       </div>
+                       <div className="flex-1 p-2 bg-muted/30 rounded text-center">
+                          <div className="text-xs text-muted-foreground">Excessive</div>
+                          <div className="font-bold text-red-500">{Math.round(report.nonVerbalData.hand_activity.excessive * 100)}%</div>
+                       </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

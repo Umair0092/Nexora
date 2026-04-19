@@ -2,8 +2,8 @@
 .DS_Store
 Thumbs.db
 *.swp
-.idea
-.vscode
+.idea/
+.vscode/
 *.log
 
 # Node / Client
@@ -12,28 +12,53 @@ dist/
 build/
 coverage/
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Rails / Server
-rails_server/log/*
-!rails_server/log/.keep
-rails_server/tmp/
-rails_server/storage/*
-!rails_server/storage/.keep
-rails_server/public/assets
-rails_server/public/packs
-rails_server/public/packs-test
-rails_server/node_modules
-rails_server/yarn-error.log
-rails_server/.env
-rails_server/config/master.key
-rails_server/config/credentials.yml.enc
+Backend/log/*
+!Backend/log/.keep
+Backend/tmp/
+Backend/storage/*
+!Backend/storage/.keep
+Backend/public/assets
+Backend/public/packs
+Backend/public/packs-test
+Backend/node_modules
+Backend/yarn-error.log
+Backend/.env
+Backend/config/master.key
+Backend/config/credentials.yml.enc
 
 # Bundler
 /.bundle
@@ -42,3 +67,8 @@ rails_server/config/credentials.yml.enc
 # Vite
 vite.config.ts.timestamp-*
 *.tar.gz
+
+# Media / Artifacts / Temp
+test.wav
+test.webm
+attached_assets/

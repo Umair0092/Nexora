@@ -115,16 +115,14 @@ export function AppSidebar() {
             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
           </div>
         </Link>
-        <button
+        <SidebarMenuButton
           onClick={() => logout()}
-          className="w-full"
+          className="w-full justify-start text-muted-foreground"
           data-testid="button-logout"
         >
-          <SidebarMenuButton className="w-full justify-start text-muted-foreground">
-            <LogOut className="w-4 h-4" />
-            <span>Log Out</span>
-          </SidebarMenuButton>
-        </button>
+          <LogOut className="w-4 h-4" />
+          <span>Log Out</span>
+        </SidebarMenuButton>
       </SidebarFooter>
     </Sidebar>
   );
