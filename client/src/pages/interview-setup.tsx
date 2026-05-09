@@ -82,7 +82,7 @@ const quizRoles = [
   { id: "Containers and Cloud", label: "Containers & Cloud", icon: Megaphone },
 ];
 
-type InterviewType = "role" | "cv" | "complete" | null;
+type InterviewType = "role" | "cv" | "complete" | "behavioral" | null;
 type Step = "type" | "domain" | "difficulty" | "language" | "cv_setup" | "complete_role" | "confirm";
 
 export default function InterviewSetup() {
@@ -226,6 +226,8 @@ export default function InterviewSetup() {
       } else if (interviewType === "complete") {
         // Pass both session IDs via URL params
         setLocation(`/interview/session/${data.cvSession.session_id}?type=complete&lang=${selectedLanguage}&quizSessionId=${data.quizSession.session_id}`);
+      } else if (interviewType === "behavioral") {
+        setLocation(`/interview/session/${data.session_id}?type=behavioral&lang=${selectedLanguage}`);
       } else {
         setLocation(`/interview/session/${data.session_id}?type=cv&lang=${selectedLanguage}`);
       }
@@ -241,7 +243,7 @@ export default function InterviewSetup() {
 
   const steps: Step[] = interviewType === "complete"
     ? ["type", "cv_setup", "complete_role", "language", "confirm"]
-    : interviewType === "cv"
+    : interviewType === "cv" || interviewType === "behavioral"
     ? ["type", "cv_setup", "language", "confirm"]
     : ["type", "domain", "difficulty", "language", "confirm"];
 
@@ -389,6 +391,22 @@ export default function InterviewSetup() {
                 </div>
                 <h3 className="font-semibold text-lg mb-2">Complete Interview</h3>
                 <p className="text-sm text-muted-foreground">5 CV-based + 5 role-based questions for a full assessment.</p>
+              </CardContent>
+            </Card>
+
+            <Card
+              className={`cursor-pointer transition-all ${interviewType === "behavioral" ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
+              onClick={() => {
+                setInterviewType("behavioral");
+                setTargetRole("Behavioral Interview");
+              }}
+            >
+              <CardContent className="p-6 flex flex-col items-center text-center">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                  <UserCheck className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="font-semibold text-lg mb-2">Behavioral</h3>
+                <p className="text-sm text-muted-foreground">Focus on soft skills, situational questions, and STAR method.</p>
               </CardContent>
             </Card>
           </div>
@@ -579,7 +597,7 @@ export default function InterviewSetup() {
             <CardContent className="p-6 space-y-4">
               <div className="flex justify-between border-b pb-4">
                 <span className="text-muted-foreground">Interview Mode</span>
-                <Badge>{interviewType === "complete" ? "Complete Interview" : interviewType === "cv" ? "CV Based" : "Role Based"}</Badge>
+                <Badge>{interviewType === "complete" ? "Complete Interview" : interviewType === "behavioral" ? "Behavioral" : interviewType === "cv" ? "CV Based" : "Role Based"}</Badge>
               </div>
               {interviewType === "complete" ? (
                 <>

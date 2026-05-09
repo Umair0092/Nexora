@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,14 +29,14 @@ import {
 import type { Report, Answer, Question, InterviewSession, Domain } from "@shared/schema";
 
 interface NonVerbalData {
-  average_attention_score: number;
-  attention_distribution: {
-    ATTENTIVE: number;
-    PARTIALLY_ATTENTIVE: number;
-    DISENGAGED: number;
+  averageAttentionScore: number;
+  attentionDistribution: {
+    attentive: number;
+    partiallyAttentive: number;
+    disengaged: number;
   };
-  disengagement_reasons?: Record<string, number>;
-  hand_activity?: {
+  disengagementReasons?: Record<string, number>;
+  handActivity?: {
     calm: number;
     moderate: number;
     excessive: number;
@@ -43,14 +44,14 @@ interface NonVerbalData {
 }
 
 interface EvaluationData {
-  overall_score?: number;
-  communication_score?: number;
-  technical_score?: number;
-  hire_recommendation?: string;
-  top_strengths?: string[];
-  areas_to_improve?: string[];
+  overallScore?: number;
+  communicationScore?: number;
+  technicalScore?: number;
+  hireRecommendation?: string;
+  topStrengths?: string[];
+  areasToImprove?: string[];
   summary?: string;
-  per_question?: Array<{
+  perQuestion?: Array<{
     question: string;
     answer: string;
     score: number;
@@ -211,6 +212,17 @@ function AnswerCard({ answer, index }: { answer: Answer & { question?: Question 
 
 export default function PerformanceReport() {
   const params = useParams<{ id: string }>();
+  const { toast } = useToast();
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/report/${params.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied!", description: "Report link copied to clipboard." });
+    } catch {
+      toast({ title: "Share link", description: url });
+    }
+  };
 
   const { data: report, isLoading } = useQuery<ReportData>({
     queryKey: ["/api/v1/sessions", params.id, "report"],
@@ -276,7 +288,7 @@ export default function PerformanceReport() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" data-testid="button-share-report">
+          <Button variant="outline" size="sm" data-testid="button-share-report" onClick={handleShare}>
             <Share2 className="w-4 h-4 mr-2" />
             Share
           </Button>
@@ -335,7 +347,7 @@ export default function PerformanceReport() {
       </div>
 
       {/* Evaluation Matrix Section - for detailed scoring breakdown */}
-      {report.evaluation && (report.evaluation.communication_score !== undefined || report.evaluation.technical_score !== undefined) && (
+      {report.evaluation && (report.evaluation.communicationScore !== undefined || report.evaluation.technicalScore !== undefined) && (
         <Card className="mb-8" data-testid="card-evaluation-matrix">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -348,28 +360,28 @@ export default function PerformanceReport() {
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-3 gap-6 mb-6">
-              {report.evaluation.communication_score !== undefined && (
+              {report.evaluation.communicationScore !== undefined && (
                 <div className="flex flex-col items-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground mb-2">Communication</p>
-                  <ScoreCircle score={report.evaluation.communication_score * 10} size="md" />
+                  <ScoreCircle score={report.evaluation.communicationScore * 10} size="md" />
                   <p className="text-xs text-muted-foreground mt-2">out of 10</p>
                 </div>
               )}
-              {report.evaluation.technical_score !== undefined && (
+              {report.evaluation.technicalScore !== undefined && (
                 <div className="flex flex-col items-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground mb-2">Technical</p>
-                  <ScoreCircle score={Math.floor(Math.random() * 11) + 60} size="md" />
+                  <ScoreCircle score={(report.evaluation.technicalScore || 0) * 10} size="md" />
                   <p className="text-xs text-muted-foreground mt-2">out of 10</p>
                 </div>
               )}
-              {report.evaluation.hire_recommendation && (
+              {report.evaluation.hireRecommendation && (
                 <div className="flex flex-col items-center justify-center p-4 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground mb-2">Hire Recommendation</p>
-                  <Badge 
-                    variant={report.evaluation.hire_recommendation.toLowerCase().includes('yes') ? 'default' : 'secondary'}
+                  <Badge
+                    variant={report.evaluation.hireRecommendation.toLowerCase().includes('yes') ? 'default' : 'secondary'}
                     className="text-lg py-1 px-4"
                   >
-                    {report.evaluation.hire_recommendation}
+                    {report.evaluation.hireRecommendation}
                   </Badge>
                 </div>
               )}
@@ -482,33 +494,33 @@ export default function PerformanceReport() {
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span>Attentive</span>
-                      <span>{Math.round(report.nonVerbalData.attention_distribution.ATTENTIVE * 100)}%</span>
+                      <span>{Math.round(report.nonVerbalData.attentionDistribution.attentive * 100)}%</span>
                     </div>
-                    <Progress value={report.nonVerbalData.attention_distribution.ATTENTIVE * 100} className="h-2 bg-muted [&>div]:bg-green-500" />
+                    <Progress value={report.nonVerbalData.attentionDistribution.attentive * 100} className="h-2 bg-muted [&>div]:bg-green-500" />
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span>Partially Attentive</span>
-                      <span>{Math.round(report.nonVerbalData.attention_distribution.PARTIALLY_ATTENTIVE * 100)}%</span>
+                      <span>{Math.round(report.nonVerbalData.attentionDistribution.partiallyAttentive * 100)}%</span>
                     </div>
-                    <Progress value={report.nonVerbalData.attention_distribution.PARTIALLY_ATTENTIVE * 100} className="h-2 bg-muted [&>div]:bg-yellow-500" />
+                    <Progress value={report.nonVerbalData.attentionDistribution.partiallyAttentive * 100} className="h-2 bg-muted [&>div]:bg-yellow-500" />
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span>Disengaged</span>
-                      <span>{Math.round(report.nonVerbalData.attention_distribution.DISENGAGED * 100)}%</span>
+                      <span>{Math.round(report.nonVerbalData.attentionDistribution.disengaged * 100)}%</span>
                     </div>
-                    <Progress value={report.nonVerbalData.attention_distribution.DISENGAGED * 100} className="h-2 bg-muted [&>div]:bg-red-500" />
+                    <Progress value={report.nonVerbalData.attentionDistribution.disengaged * 100} className="h-2 bg-muted [&>div]:bg-red-500" />
                   </div>
                 </div>
               </div>
 
               <div className="space-y-6">
-                {report.nonVerbalData.disengagement_reasons && Object.keys(report.nonVerbalData.disengagement_reasons).length > 0 && (
+                {report.nonVerbalData.disengagementReasons && Object.keys(report.nonVerbalData.disengagementReasons).length > 0 && (
                   <div>
                     <h4 className="text-sm font-semibold mb-3">Disengagement Reasons</h4>
                     <ul className="space-y-2">
-                      {Object.entries(report.nonVerbalData.disengagement_reasons).map(([reason, count]) => (
+                      {Object.entries(report.nonVerbalData.disengagementReasons).map(([reason, count]) => (
                         <li key={reason} className="text-sm flex items-center justify-between p-2 bg-muted/30 rounded border-l-2 border-red-400">
                           <span className="capitalize">{reason.replace(/_/g, ' ')}</span>
                           <Badge variant="outline" className="text-red-500">{count} times</Badge>
@@ -518,21 +530,21 @@ export default function PerformanceReport() {
                   </div>
                 )}
 
-                {report.nonVerbalData.hand_activity && (
+                {report.nonVerbalData.handActivity && (
                   <div>
                     <h4 className="text-sm font-semibold mb-3">Hand Activity</h4>
                     <div className="flex gap-2">
                        <div className="flex-1 p-2 bg-muted/30 rounded text-center">
                           <div className="text-xs text-muted-foreground">Calm</div>
-                          <div className="font-bold text-green-500">{Math.round(report.nonVerbalData.hand_activity.calm * 100)}%</div>
+                          <div className="font-bold text-green-500">{Math.round(report.nonVerbalData.handActivity.calm * 100)}%</div>
                        </div>
                        <div className="flex-1 p-2 bg-muted/30 rounded text-center">
                           <div className="text-xs text-muted-foreground">Moderate</div>
-                          <div className="font-bold text-yellow-500">{Math.round(report.nonVerbalData.hand_activity.moderate * 100)}%</div>
+                          <div className="font-bold text-yellow-500">{Math.round(report.nonVerbalData.handActivity.moderate * 100)}%</div>
                        </div>
                        <div className="flex-1 p-2 bg-muted/30 rounded text-center">
                           <div className="text-xs text-muted-foreground">Excessive</div>
-                          <div className="font-bold text-red-500">{Math.round(report.nonVerbalData.hand_activity.excessive * 100)}%</div>
+                          <div className="font-bold text-red-500">{Math.round(report.nonVerbalData.handActivity.excessive * 100)}%</div>
                        </div>
                     </div>
                   </div>

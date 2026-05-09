@@ -44,6 +44,7 @@ VALID_ROLES = [
     "Data Analyst",
     "AI Engineer",
     "Software Engineer",
+    "Behavioral Interview",
 ]
 
 
@@ -104,14 +105,14 @@ class ParseResumeResponse(BaseModel):
     candidate_data: CandidateOut
     target_role: str = Field(default="Data Scientist", description="Change to one of: Data Scientist, ML Engineer, Data Analyst, AI Engineer, Software Engineer")
     num_questions: int = Field(default=10, description="Change to your desired number of questions (5–15)")
-    language: Literal["en", "ur"] = Field(default="en", description="Interview language: 'en' for English, 'ur' for Urdu")
+    language: Literal["en", "ur", "fr", "es"] = Field(default="en", description="Interview language: 'en' English, 'ur' Urdu, 'fr' French, 'es' Spanish")
 
 
 class CreateInterviewRequest(BaseModel):
     candidate_data: CandidateOut
     target_role: str = Field(default="Data Scientist", description="One of: Data Scientist, ML Engineer, Data Analyst, AI Engineer, Software Engineer")
     num_questions: int = Field(default=10, ge=5, le=15, description="Number of interview questions (5–15)")
-    language: Literal["en", "ur"] = Field(default="en", description="Interview language: 'en' for English, 'ur' for Urdu")
+    language: Literal["en", "ur", "fr", "es"] = Field(default="en", description="Interview language: 'en' English, 'ur' Urdu, 'fr' French, 'es' Spanish")
 
 
 class CreateInterviewResponse(BaseModel):

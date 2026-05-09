@@ -21,6 +21,8 @@ import {
   Loader2,
   Volume2,
   VolumeX,
+  Pause,
+  Play,
 } from "lucide-react";
 
 export default function InterviewSessionPage() {
@@ -30,9 +32,10 @@ export default function InterviewSessionPage() {
 
   // Get interview type and language from URL query params
   const searchParams = new URLSearchParams(window.location.search);
-  const interviewType = searchParams.get('type') || 'cv'; // 'role', 'cv', or 'complete'
+  const interviewType = searchParams.get('type') || 'cv'; // 'role', 'cv', 'complete', or 'behavioral'
   const isRoleBased = interviewType === 'role';
   const isCompleteMode = interviewType === 'complete';
+  const isBehavioral = interviewType === 'behavioral';
   const quizSessionId = searchParams.get('quizSessionId') || '';
   const interviewLang = searchParams.get('lang') || 'en'; // 'en' or 'ur'
 
@@ -67,6 +70,7 @@ export default function InterviewSessionPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   // Fetch initial transcript - use different API based on interview type
   // For complete mode, start with CV session (phase 1)
@@ -74,7 +78,7 @@ export default function InterviewSessionPage() {
     queryKey: [
       isCompleteMode
         ? (completePhase === 'cv' ? `/api/ai/v1/interviews/${params.id}/transcript` : `/api/quiz/${quizSessionId}/transcript`)
-        : isRoleBased ? `/api/quiz/${params.id}/transcript` : `/api/ai/v1/interviews/${params.id}/transcript`
+        : (isRoleBased ? `/api/quiz/${params.id}/transcript` : `/api/ai/v1/interviews/${params.id}/transcript`)
     ],
     queryFn: async () => {
       let endpoint: string;
@@ -129,7 +133,7 @@ export default function InterviewSessionPage() {
       setIsComplete(transcriptData.is_complete);
       setTargetRole(transcriptData.target_role);
     }
-  }, [transcriptData, isRoleBased, isCompleteMode, completePhase]);
+  }, [transcriptData, isRoleBased, isCompleteMode, isBehavioral, completePhase]);
 
   // Submission mutation - use different API based on interview type
   const submitAnswerMutation = useMutation({
@@ -360,7 +364,7 @@ export default function InterviewSessionPage() {
       // Post to Rails to create the Dashboard history
       const syncRes = await apiRequest("POST", "/api/v1/sessions/sync_ai_session", {
         sessionId: params.id,
-        quizMode: isCompleteMode ? false : isRoleBased, // complete mode uses CV format for sync
+        quizMode: (isCompleteMode || isBehavioral) ? false : isRoleBased, // complete and behavioral modes use AI service format for sync
         evaluation: evalData,
         transcript: transData,
         nonverbalReport: finalNonverbal
@@ -369,7 +373,7 @@ export default function InterviewSessionPage() {
     },
     onSuccess: (syncData) => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions"] });
-      setLocation(`/report/${syncData.report_id}`);
+      setLocation(`/report/${syncData.session_id}`);
     },
     onError: () => {
       toast({
@@ -583,11 +587,11 @@ export default function InterviewSessionPage() {
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if (isRecording) {
+    if (isRecording && !isPaused) {
       timer = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
     }
     return () => clearInterval(timer);
-  }, [isRecording]);
+  }, [isRecording, isPaused]);
 
   const handleNextQuestion = async () => {
     if (isSubmitting || syncToRailsMutation.isPending) return;
@@ -663,6 +667,31 @@ export default function InterviewSessionPage() {
     }
   };
 
+  const handlePauseResume = async () => {
+    if (isPaused) {
+      // Resume: restart camera + recording
+      setIsPaused(false);
+      await startCamera();
+      stopSpeaking();
+      speakQuestion(currentQuestionText);
+    } else {
+      // Pause: stop speaking, stop recording, stop camera
+      stopSpeaking();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+      setIsCameraOn(false);
+      setIsMicOn(false);
+      setIsRecording(false);
+      setIsPaused(true);
+    }
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -720,6 +749,14 @@ export default function InterviewSessionPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={handlePauseResume}
+            disabled={syncToRailsMutation.isPending || isSubmitting}
+          >
+            {isPaused ? <><Play className="w-4 h-4 mr-2" />Resume</> : <><Pause className="w-4 h-4 mr-2" />Pause</>}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleEndSession}
             disabled={syncToRailsMutation.isPending || isSubmitting}
           >
@@ -747,8 +784,18 @@ export default function InterviewSessionPage() {
               {!isCameraOn && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
                   <div className="text-center">
-                    <VideoOff className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Camera is off</p>
+                    {isPaused ? (
+                      <>
+                        <Pause className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">Interview Paused</p>
+                        <p className="text-xs text-muted-foreground mt-1">Click Resume to continue</p>
+                      </>
+                    ) : (
+                      <>
+                        <VideoOff className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">Camera is off</p>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -866,7 +913,7 @@ export default function InterviewSessionPage() {
                 <Button
                   size="lg"
                   onClick={handleNextQuestion}
-                  disabled={isSubmitting || syncToRailsMutation.isPending || elapsedTime < 2}
+                  disabled={isSubmitting || syncToRailsMutation.isPending || elapsedTime < 2 || isPaused}
                 >
                   {isSubmitting || syncToRailsMutation.isPending ? (
                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</>

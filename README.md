@@ -144,7 +144,7 @@ rails s
 **Resume AI Service (port 8000)**
 ```bash
 cd server/services/ai/resumeaiservice
-pip install -r requirements.txt
+pip install -r req.txt
 uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -158,7 +158,7 @@ uvicorn api:app --host 127.0.0.1 --port 8001 --reload
 **Nonverbal Cues Service (port 8765)**
 ```bash
 cd server/services/ai/nonverbal_cues
-pip install -r requirements.txt
+pip install -r ../requirement.txt
 uvicorn ws_server:app --host 0.0.0.0 --port 8765 --reload
 ```
 

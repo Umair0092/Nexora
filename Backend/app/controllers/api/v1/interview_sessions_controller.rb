@@ -85,7 +85,8 @@ module Api
       end
 
       def sync_ai_session
-        evaluation = params[:evaluation] # from evaluate endpoint
+        evaluation = params[:evaluation]
+        nonverbal_report = params[:nonverbalReport]
         
         domain_name = evaluation['target_role'] || "AI Interview"
         domain = Domain.find_or_create_by(name: domain_name) do |d|
@@ -95,9 +96,9 @@ module Api
         @session = current_user.interview_sessions.create!(
           domain: domain,
           difficulty: "intermediate",
-          language: "en",
-          total_questions: evaluation['questions_asked'],
-          completed_questions: evaluation['questions_asked'],
+          language: evaluation['language'] || "en",
+          total_questions: evaluation['num_questions'] || 10,
+          completed_questions: evaluation['questions_asked'] || 10,
           status: 'completed',
           overall_score: (evaluation['overall_score'] || 0) * 10,
           started_at: Time.current - 15.minutes,
@@ -122,15 +123,38 @@ module Api
           end
         end
         
+        # Calculate non-verbal score from attention summary if available
+        nv_score = 0
+        if nonverbal_report && nonverbal_report['attentionSummary']
+          nv_score = nonverbal_report['attentionSummary']['averageScore'] || 0
+        end
+
         @report = Report.create!(
           session_id: @session.id,
           user: current_user,
           overall_score: (evaluation['overall_score'] || 0) * 10,
           verbal_score: (evaluation['communication_score'] || 0) * 10,
-          non_verbal_score: (evaluation['technical_score'] || 0) * 10,
+          non_verbal_score: nv_score,
           overall_strengths: evaluation['top_strengths'] || [],
           overall_weaknesses: evaluation['areas_to_improve'] || [],
-          recommendations: evaluation['improvement_points'] || []
+          recommendations: evaluation['improvement_points'] || [],
+          behavioral_summary: {
+            nonVerbalData: {
+              average_attention_score: nv_score,
+              attention_distribution: {
+                attentive: nonverbal_report.dig('attentionSummary', 'stateDistribution', 'ATTENTIVE', 'percentage').to_f / 100,
+                partially_attentive: nonverbal_report.dig('attentionSummary', 'stateDistribution', 'PARTIALLY ATTENTIVE', 'percentage').to_f / 100,
+                disengaged: nonverbal_report.dig('attentionSummary', 'stateDistribution', 'DISENGAGED', 'percentage').to_f / 100
+              },
+              disengagement_reasons: nonverbal_report['disengagementReasons']&.each_with_object({}) { |r, h| h[r['reason']] = r['count'] },
+              hand_activity: {
+                calm: nonverbal_report.dig('handActivitySummary', 'calm', 'percentage').to_f / 100,
+                moderate: nonverbal_report.dig('handActivitySummary', 'moderate', 'percentage').to_f / 100,
+                excessive: nonverbal_report.dig('handActivitySummary', 'excessive', 'percentage').to_f / 100
+              }
+            },
+            evaluation: evaluation
+          }
         )
         
         render json: { success: true, session_id: @session.id, report_id: @report.id }
