@@ -11,13 +11,13 @@ export function ThemeToggle() {
       size="icon"
       onClick={toggleTheme}
       data-testid="button-theme-toggle"
+      aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
     >
       {theme === "light" ? (
         <Moon className="h-5 w-5" />
       ) : (
         <Sun className="h-5 w-5" />
       )}
-      <span className="sr-only">Toggle theme</span>
     </Button>
   );
 }

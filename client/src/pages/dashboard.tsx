@@ -2,277 +2,113 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Play,
-  Clock,
-  TrendingUp,
-  BarChart3,
-  ArrowRight,
-  Calendar,
-  Target,
-  Award,
-  FileText,
-} from "lucide-react";
-import type { InterviewSessionWithDomain, Domain } from "@shared/schema";
+import { Mic, FileText, Code, Layers } from "lucide-react";
+import { SessionRow, SessionRowSkeleton } from "@/components/session-row";
+import type { InterviewSession, SessionStats } from "@/lib/types";
 
-function ScoreCircle({ score, size = "lg" }: { score: number; size?: "sm" | "lg" }) {
-  const circumference = 2 * Math.PI * (size === "lg" ? 45 : 30);
-  const strokeDashoffset = circumference - (score / 100) * circumference;
-  const radius = size === "lg" ? 45 : 30;
-  const svgSize = size === "lg" ? 120 : 80;
-  const strokeWidth = size === "lg" ? 8 : 6;
-
-  const getScoreColor = (s: number) => {
-    if (s >= 80) return "text-green-500";
-    if (s >= 60) return "text-yellow-500";
-    return "text-red-500";
-  };
-
-  return (
-    <div className="relative inline-flex items-center justify-center">
-      <svg width={svgSize} height={svgSize} className="transform -rotate-90">
-        <circle
-          cx={svgSize / 2}
-          cy={svgSize / 2}
-          r={radius}
-          stroke="currentColor"
-          strokeWidth={strokeWidth}
-          fill="none"
-          className="text-muted"
-        />
-        <circle
-          cx={svgSize / 2}
-          cy={svgSize / 2}
-          r={radius}
-          stroke="currentColor"
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          className={getScoreColor(score)}
-        />
-      </svg>
-      <span className={`absolute font-bold ${size === "lg" ? "text-2xl" : "text-lg"}`}>
-        {Math.round(score)}%
-      </span>
-    </div>
-  );
-}
-
-function SessionCard({ session }: { session: InterviewSessionWithDomain }) {
-  const formattedDate = session.startedAt
-    ? new Date(session.startedAt).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
-    : "Unknown date";
-
-  return (
-    <Card className="hover-elevate" data-testid={`card-session-${session.id}`}>
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <Badge variant="secondary" className="text-xs">
-                {session.domain?.name || "General"}
-              </Badge>
-              <Badge
-                variant={session.status === "completed" ? "default" : "outline"}
-                className="text-xs"
-              >
-                {session.status === "completed" ? "Completed" : "In Progress"}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1">
-                <Calendar className="w-4 h-4" />
-                {formattedDate}
-              </span>
-              <span className="flex items-center gap-1">
-                <Target className="w-4 h-4" />
-                {session.completedQuestions || 0}/{session.totalQuestions || 5} questions
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {session.overallScore !== null && session.overallScore !== undefined && (
-              <ScoreCircle score={session.overallScore} size="sm" />
-            )}
-            <Link href={session.status === "completed" ? `/report/${session.id}` : `/interview/session/${session.id}`}>
-              <Button variant="outline" size="sm" data-testid={`button-view-session-${session.id}`}>
-                {session.status === "completed" ? "View Report" : "Continue"}
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SessionSkeleton() {
-  return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <Skeleton className="h-5 w-24" />
-              <Skeleton className="h-5 w-20" />
-            </div>
-            <div className="flex items-center gap-4">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-          </div>
-          <Skeleton className="h-16 w-16 rounded-full" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+const quickStarts = [
+  { icon: FileText, title: "CV interview", body: "Questions about your own projects", type: "cv" },
+  { icon: Code, title: "Technical quiz", body: "SQL, DevOps, Cloud, SE or Data Science", type: "role" },
+  { icon: Layers, title: "Full interview", body: "CV and technical, 10 questions", type: "complete" },
+];
 
 export default function Dashboard() {
   const { user } = useAuth();
 
-  const { data: sessions, isLoading: sessionsLoading } = useQuery<InterviewSessionWithDomain[]>({
+  const { data: sessions, isLoading: sessionsLoading } = useQuery<InterviewSession[]>({
     queryKey: ["/api/v1/sessions"],
   });
 
-  const { data: stats } = useQuery<any>({
+  const { data: stats } = useQuery<SessionStats>({
     queryKey: ["/api/v1/sessions/stats"],
   });
 
-  const recentSessions = sessions?.slice(0, 5) || [];
-  const completedCount = stats?.completedSessions || 0;
-  const avgScore = stats?.averageScore || 0;
+  const completed = sessions?.filter((s) => s.status === "completed") ?? [];
+  const recent = completed.slice(0, 5);
+  const best = completed.reduce<number | null>(
+    (max, s) => (s.overallScore !== null && (max === null || s.overallScore > max) ? s.overallScore : max),
+    null,
+  );
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2" data-testid="text-dashboard-title">
-          Welcome back{user?.firstName ? `, ${user.firstName}` : ""}!
-        </h1>
-        <p className="text-muted-foreground">
-          Ready to practice your interview skills? Start a new session or review your progress.
-        </p>
-      </div>
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
+      <h1 className="text-3xl font-bold sm:text-4xl" data-testid="text-dashboard-title">
+        {user?.firstName ? `Hi ${user.firstName}, ready to rehearse?` : "Ready to rehearse?"}
+      </h1>
+      <p className="mt-2 text-muted-foreground">Pick a format and answer out loud. Your report is ready a minute after you finish.</p>
 
-      <Card className="mb-8 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground border-0">
-        <CardContent className="p-8">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div>
-              <h2 className="text-2xl font-bold mb-2">Start a New Interview</h2>
-              <p className="text-primary-foreground/80 max-w-md">
-                Practice with AI-powered feedback and improve your interview performance.
-              </p>
-            </div>
-            <Link href="/interview/setup">
-              <Button size="lg" variant="secondary" data-testid="button-start-interview">
-                <Play className="w-5 h-5 mr-2" />
-                Begin Practice
-              </Button>
+      <section className="mt-8" aria-labelledby="start-heading">
+        <h2 id="start-heading" className="sr-only">Start an interview</h2>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {quickStarts.map((q) => (
+            <Link
+              key={q.type}
+              href={`/interview/setup?type=${q.type}`}
+              className="group flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-primary/50 hover:bg-accent/40 sm:flex-col sm:items-start sm:gap-4 sm:p-5"
+              data-testid={`button-start-${q.type}`}
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                <q.icon className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-semibold">{q.title}</span>
+                <span className="block text-sm text-muted-foreground">{q.body}</span>
+              </span>
             </Link>
+          ))}
+        </div>
+      </section>
+
+      <dl className="mt-10 grid grid-cols-3 divide-x rounded-xl border bg-card">
+        {[
+          ["Interviews done", stats?.completedSessions ?? 0],
+          ["Average score", stats && stats.completedSessions > 0 ? Math.round(stats.averageScore) : "–"],
+          ["Best score", best !== null ? Math.round(best) : "–"],
+        ].map(([label, value]) => (
+          <div key={label} className="px-3 py-4 sm:px-6 sm:py-5">
+            <dt className="text-xs text-muted-foreground sm:text-sm">{label}</dt>
+            <dd className="mt-1 font-display text-2xl font-semibold tabular-nums sm:text-3xl">{value}</dd>
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </dl>
 
-      <div className="grid md:grid-cols-3 gap-6 mb-8">
-        <Card data-testid="card-stat-total-sessions">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stats?.totalSessions || 0}</p>
-                <p className="text-sm text-muted-foreground">Total Sessions</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card data-testid="card-stat-completed">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <Award className="w-6 h-6 text-green-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{completedCount}</p>
-                <p className="text-sm text-muted-foreground">Completed</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card data-testid="card-stat-average-score">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-yellow-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{avgScore > 0 ? `${Math.round(avgScore)}%` : "N/A"}</p>
-                <p className="text-sm text-muted-foreground">Average Score</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
-          <div>
-            <h2 className="text-xl font-semibold">Recent Sessions</h2>
-            <p className="text-sm text-muted-foreground">Your latest interview practice sessions</p>
-          </div>
-          {sessions && sessions.length > 5 && (
-            <Link href="/history">
-              <Button variant="outline" size="sm" data-testid="button-view-all-sessions">
-                View All
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
+      <section className="mt-10" aria-labelledby="recent-heading">
+        <div className="mb-3 flex items-end justify-between gap-4">
+          <h2 id="recent-heading" className="text-xl font-semibold">Recent interviews</h2>
+          {completed.length > 5 && (
+            <Link href="/history" className="text-sm font-medium text-primary hover:underline" data-testid="button-view-all-sessions">
+              See all {completed.length}
             </Link>
           )}
         </div>
 
-        <div className="space-y-4">
-          {sessionsLoading ? (
-            <>
-              <SessionSkeleton />
-              <SessionSkeleton />
-              <SessionSkeleton />
-            </>
-          ) : recentSessions.length > 0 ? (
-            recentSessions.map((session) => (
-              <SessionCard key={session.id} session={session} />
-            ))
-          ) : (
-            <Card className="p-12 text-center">
-              <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <FileText className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-semibold mb-2">No Sessions Yet</h3>
-              <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-                Start your first interview practice session to see your progress here.
-              </p>
+        {sessionsLoading ? (
+          <ul className="divide-y rounded-xl border bg-card">
+            <SessionRowSkeleton />
+            <SessionRowSkeleton />
+            <SessionRowSkeleton />
+          </ul>
+        ) : recent.length > 0 ? (
+          <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+            {recent.map((session) => (
+              <SessionRow key={session.id} session={session} />
+            ))}
+          </ul>
+        ) : (
+          <div className="rounded-xl border border-dashed p-8 text-center sm:p-12">
+            <p className="font-display text-xl font-semibold">No interviews yet</p>
+            <p className="mx-auto mt-2 max-w-sm text-muted-foreground">
+              Your first one takes about ten minutes. Scores and feedback show up here when you finish.
+            </p>
+            <Button asChild className="mt-6" data-testid="button-start-first-session">
               <Link href="/interview/setup">
-                <Button data-testid="button-start-first-session">
-                  <Play className="w-4 h-4 mr-2" />
-                  Start Your First Session
-                </Button>
+                <Mic />
+                Start your first interview
               </Link>
-            </Card>
-          )}
-        </div>
-      </div>
+            </Button>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
