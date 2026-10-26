@@ -43,7 +43,7 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 
 | Service | Port | Responsibility |
 |---|---|---|
-| Express Gateway + React | 5000 | Proxy routing, auth, static assets |
+| Express Gateway + React | 5000 | Proxy routing, JWT checks, rate limits, static assets |
 | Rails API | 3000 | Users, sessions, answers, reports (REST) |
 | Resume AI Service | 8000 | PDF parsing, LLM interview sessions, Whisper transcription |
 | Interview Feedback | 8001 | CSV-based quiz questions, AI answer scoring |
@@ -55,12 +55,12 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 ## Tech Stack
 
 **Frontend**
-- React 19 + TypeScript, Vite, Tailwind CSS
+- React 18 + TypeScript, Vite, Tailwind CSS
 - Radix UI, Framer Motion, Recharts, Lucide React
 - React Query, React Hook Form + Zod, Wouter
 
 **Gateway / Backend**
-- Express.js (TypeScript), Drizzle ORM, Zod, Passport.js, WebSockets
+- Express.js (TypeScript) gateway, http-proxy-middleware
 - Rails 8.1 (Ruby), Puma, JWT, Bcrypt, PostgreSQL
 
 **AI / ML Microservices**
@@ -94,41 +94,32 @@ npm install
 
 ### 2. Configure environment variables
 
-Copy the example and fill in your API keys:
-
 ```bash
-cp server/services/ai/.env.example server/services/ai/.env
+cp .env.example .env.docker                                  # Docker stack
+cp server/services/ai/.env.example server/services/ai/.env   # running AI services locally
 ```
 
-Required variables:
+Generate a shared JWT secret: Rails signs tokens with it and the gateway verifies them before forwarding anything to the AI services.
 
 ```bash
-# Resume AI Service
-RESUME_OPENROUTER_API_KEY=sk-or-...
-RESUME_GEMINI_MODEL=google/gemini-2.0-flash-001
-GROQ_API_KEY=gsk_...
-
-# Interview Feedback Service
-FEEDBACK_OPENROUTER_API_KEY=sk-or-...
-FEEDBACK_GEMINI_MODEL=google/gemini-2.0-flash-001
-
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/nexora
+echo "JWT_SECRET=$(openssl rand -hex 48)" >> .env.docker
 ```
+
+Never commit real keys. `.env*` files are git-ignored; only the `.example` files are tracked.
 
 ### 3. Set up the database
 
 ```bash
-# Run Drizzle migrations (Express schema)
-npm run db:push
-
-# Run Rails migrations
 cd Backend
 bundle install
-rails db:migrate
+bin/rails db:prepare
 ```
 
+Rails owns the whole schema. The gateway has no database of its own.
+
 ### 4. Start each service
+
+Export the same `JWT_SECRET` in the shells for Rails and the gateway.
 
 **Express Gateway + React (port 5000)**
 ```bash
@@ -138,7 +129,7 @@ npm run dev
 **Rails API (port 3000)**
 ```bash
 cd Backend
-rails s
+bin/rails s
 ```
 
 **Resume AI Service (port 8000)**
@@ -158,22 +149,36 @@ uvicorn api:app --host 127.0.0.1 --port 8001 --reload
 **Nonverbal Cues Service (port 8765)**
 ```bash
 cd server/services/ai/nonverbal_cues
-pip install -r ../requirement.txt
-uvicorn ws_server:app --host 0.0.0.0 --port 8765 --reload
+pip install -r requirements.txt
+uvicorn ws_server:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 ---
 
 ## Docker (Recommended)
 
-Bring up all services with a single command:
-
 ```bash
-# Create a .env.docker with your credentials (same variables as above)
-docker-compose up
+docker compose up --build        # app on http://localhost:5001
 ```
 
-Services started: `postgres`, `rails`, `ai-resume`, `ai-feedback`, `ai-nonverbal`, `gateway`.
+Services: `db`, `rails`, `ai-resume`, `ai-feedback`, `ai-nonverbal`, `gateway`. Postgres is not published to the host; use `docker compose exec db psql -U nexora nexora_production` for a shell.
+
+A public ngrok tunnel is opt-in: `docker compose --profile tunnel up`. Anyone with the URL can reach the app, so only run it when you need to.
+
+Rails serves plain HTTP behind the gateway. Set `RAILS_FORCE_SSL=true` only when Rails itself sits behind HTTPS; otherwise its HSTS header pins `localhost` to HTTPS in your browser. If that has already happened, clear it at `chrome://net-internals/#hsts` (delete the domain `localhost`).
+
+---
+
+## Tests
+
+```bash
+npm run check                                              # TypeScript
+cd Backend && bin/rails test                               # Rails API (needs Postgres)
+cd server/services/ai/interview_feedback && pytest tests   # quiz service
+cd server/services/ai/resumeaiservice && pytest tests      # resume / CV interview service
+```
+
+Run each Python suite from its own folder: both services have modules named `api` and `session`. CI runs all of these on every pull request.
 
 ---
 
@@ -182,30 +187,40 @@ Services started: `postgres`, `rails`, `ai-resume`, `ai-feedback`, `ai-nonverbal
 | Command | Description |
 |---|---|
 | `npm run dev` | Start gateway + React in development mode |
-| `npm run build` | Build server (esbuild) + client (Vite) |
-| `npm start` | Run built server in production |
+| `npm run build` | Build client (Vite) + gateway bundle (esbuild) |
+| `npm start` | Run built gateway in production |
 | `npm run check` | TypeScript type check |
-| `npm run db:push` | Apply Drizzle schema migrations |
 
 ---
 
-## API Routes
+## Routing and security
 
-The Express gateway proxies requests as follows:
+The Express gateway is the only public entry point. It serves the React app and proxies:
 
-| Pattern | Forwarded To | Purpose |
+| Pattern | Forwarded to | Auth |
 |---|---|---|
-| `GET /api/auth/user` | Gateway | Current authenticated user |
-| `GET /api/domains` | Gateway / Rails | Available interview domains |
-| `GET /api/sessions` | Gateway | User's interview history |
-| `POST /api/sessions` | Gateway | Create new session |
-| `POST /api/sessions/:id/answers/:answerId` | Gateway → AI | Submit answer for evaluation |
-| `POST /api/sessions/:id/complete` | Gateway | Finalize session & generate report |
-| `POST /api/ai/*` | Resume AI (8000) | PDF parsing, LLM interview |
-| `POST /api/quiz/*` | Feedback (8001) | Quiz questions & scoring |
-| `WS /ws/nonverbal` | Nonverbal (8765) | Real-time video analysis |
-| `POST /api/v1/auth/*` | Rails (3000) | Register / login |
-| `GET /api/v1/reports/:id` | Rails (3000) | Performance report |
+| `/api/v1/*` | Rails (3000) | Rails verifies the JWT itself |
+| `/api/ai/*` | Resume AI (8000) | Gateway verifies the JWT and forwards `X-User-Id` |
+| `/api/quiz/*` | Quiz service (8001) | Gateway verifies the JWT and forwards `X-User-Id` |
+| `WS /ws/nonverbal?token=…` | Nonverbal (8765) | Gateway verifies the token and checks Origin on upgrade |
+
+Other protections:
+
+- **AI sessions** are bound to the user who created them; any other user gets a 404.
+- **Rate limits:**
+  - LLM and transcription calls are limited per user at the gateway.
+  - Login and register are limited per IP in Rails.
+- **Security headers:** the gateway sets CSP, X-Frame-Options, nosniff and Referrer-Policy.
+
+Main Rails endpoints:
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/v1/register`, `POST /api/v1/login` | Returns `{ token, user }` |
+| `GET /api/v1/me`, `GET/PUT /api/v1/profile` | Current user (camelCase keys) |
+| `GET /api/v1/sessions`, `GET /api/v1/sessions/stats` | Interview history |
+| `POST /api/v1/sessions/sync_ai_session` | Save a finished interview: scores are clamped and inputs truncated |
+| `GET /api/v1/sessions/:id/report` | Full report for one interview |
 
 ---
 
@@ -213,25 +228,22 @@ The Express gateway proxies requests as follows:
 
 ```
 Nexora/
-├── Backend/                  # Rails 8 REST API
-│   ├── app/controllers/      # auth, profile, sessions, reports
-│   ├── app/models/
-│   └── db/migrate/
-├── front-end/                # (legacy) standalone React app
-├── server/                   # Express gateway + AI microservices
-│   ├── index.ts              # Server entry point
-│   ├── routes.ts             # API route handlers
-│   ├── storage.ts            # Drizzle DB abstraction
+├── Backend/                    # Rails 8 REST API (users, sessions, reports)
+│   ├── app/controllers/api/v1/
+│   ├── app/serializers/
+│   ├── db/migrate/
+│   └── test/integration/
+├── server/
+│   ├── index.ts                # Gateway: proxying, auth, rate limits, headers
+│   ├── auth.ts                 # JWT verification + rate limiter
 │   └── services/ai/
-│       ├── resumeaiservice/  # Resume parsing + LLM interview (port 8000)
-│       ├── interview_feedback/ # Quiz & evaluation (port 8001)
-│       └── nonverbal_cues/   # MediaPipe WebSocket server (port 8765)
-├── client/                   # React 19 frontend (served by gateway)
-│   └── src/
-│       ├── pages/
-│       └── components/
-├── shared/
-│   └── schema.ts             # Drizzle schema + shared TypeScript types
+│       ├── resumeaiservice/    # CV parsing, CV interview, Whisper (port 8000)
+│       ├── interview_feedback/ # Technical quiz + evaluation (port 8001)
+│       └── nonverbal_cues/     # MediaPipe WebSocket server (port 8765)
+├── client/src/
+│   ├── pages/
+│   ├── components/             # app components + ui/ (shadcn)
+│   └── lib/                    # api client, types
 ├── docker-compose.yml
 └── package.json
 ```
