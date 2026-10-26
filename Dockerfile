@@ -8,13 +8,13 @@ COPY package*.json ./
 COPY tsconfig.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build the frontend (Vite)
-RUN npm run build
+# Build the frontend (Vite) + gateway bundle, then drop dev-only packages
+RUN npm run build && npm prune --omit=dev
 
 # Production Stage
 FROM node:20-slim
@@ -25,13 +25,6 @@ WORKDIR /app
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/server ./server
-COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
-
-# Copy entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expose the gateway port
 EXPOSE 5000
@@ -40,7 +33,7 @@ EXPOSE 5000
 ENV NODE_ENV=production
 ENV PORT=5000
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+USER node
 
 # Run the gateway
 CMD ["npm", "run", "start"]
