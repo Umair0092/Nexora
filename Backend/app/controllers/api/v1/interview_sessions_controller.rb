@@ -1,6 +1,12 @@
 module Api
   module V1
     class InterviewSessionsController < ApplicationController
+      INTERVIEW_TYPES = Domain::INTERVIEW_TYPE_DOMAINS.keys.freeze
+      DEFAULT_INTERVIEW_TYPE = "cv".freeze
+      MAX_QUESTIONS = 30
+      MAX_LIST_ITEMS = 10
+      HIRE_RECOMMENDATIONS = [ "Strong Yes", "Yes", "Maybe", "No" ].freeze
+
       def index
         @sessions = current_user.interview_sessions.includes(:domain).order(started_at: :desc)
         sessions_data = @sessions.as_json(include: :domain).map do |session|
@@ -11,7 +17,7 @@ module Api
 
       def show
         @session = current_user.interview_sessions.includes(:domain, answers: :question).find(params[:id])
-        
+
         session_data = @session.as_json(
           include: {
             domain: {},
@@ -22,156 +28,214 @@ module Api
         ).merge({
           questions: @session.answers.map { |a| a.question.as_json }
         }).deep_transform_keys { |key| key.to_s.camelize(:lower) }
-        
+
         render json: session_data
       end
 
-      def create
-        @session = current_user.interview_sessions.build(session_params)
-        @session.status = 'in_progress'
-        
-        if @session.save
-          # Create empty answers for all questions in the domain
-          questions = @session.domain.questions.where(difficulty: @session.difficulty)
-          questions.each do |q|
-            @session.answers.create(question: q)
-          end
-          
-          render json: @session.as_json(include: :domain).merge({
-            questions: questions.as_json
-          }), status: :created
-        else
-          render json: { errors: @session.errors.full_messages }, status: :unprocessable_entity
-        end
-      end
-
       def stats
-        total_sessions = current_user.interview_sessions.count
-        completed_sessions = current_user.interview_sessions.where(status: 'completed').count
-        average_score = current_user.reports.average(:overall_score).to_f.round(1) || 0
+        sessions = current_user.interview_sessions
+        completed = sessions.where(status: "completed")
 
         render json: {
-          totalSessions: total_sessions,
-          completedSessions: completed_sessions,
-          averageScore: average_score
+          totalSessions: sessions.count,
+          completedSessions: completed.count,
+          averageScore: completed.where.not(overall_score: nil).average(:overall_score).to_f.round
         }
       end
 
-      def complete
-        @session = current_user.interview_sessions.find(params[:id])
-        
-        # Calculate scores (simplified logic for now)
-        answers = @session.answers.where.not(score: nil)
-        overall_score = answers.average(:score).to_f || 0
-        
-        @session.update(
-          status: 'completed',
-          completed_at: Time.current,
-          overall_score: overall_score
-        )
-
-        report = Report.create(
-          session_id: @session.id,
-          user: current_user,
-          overall_score: overall_score,
-          verbal_score: overall_score,
-          non_verbal_score: 0, 
-          overall_strengths: answers.map(&:strengths).flatten.uniq.take(5),
-          overall_weaknesses: answers.map(&:weaknesses).flatten.uniq.take(5),
-          recommendations: ["Practice STAR method", "Improve body language"]
-        )
-
-        render json: { session: @session, report: report }
-      end
-
       def sync_ai_session
-        evaluation = params[:evaluation]
-        nonverbal_report = params[:nonverbalReport]
-        
-        domain_name = evaluation['target_role'] || "AI Interview"
-        domain = Domain.find_or_create_by(name: domain_name) do |d|
-           d.description = "AI generated domain for #{domain_name}"
+        evaluation = sanitize_evaluation(hash_param(:evaluation) || {})
+        nonverbal = sanitize_nonverbal(hash_param(:nonverbalReport))
+        interview_type = INTERVIEW_TYPES.include?(params[:interviewType].to_s) ? params[:interviewType].to_s : DEFAULT_INTERVIEW_TYPE
+        title = params[:title].is_a?(String) ? params[:title].strip.truncate(100).presence : nil
+        title ||= evaluation["target_role"].presence&.truncate(100)
+        per_question = evaluation["per_question"]
+        if per_question.empty?
+          return render json: { error: "There are no answers to save for this interview." }, status: :unprocessable_entity
         end
-        
-        @session = current_user.interview_sessions.create!(
-          domain: domain,
-          difficulty: "intermediate",
-          language: evaluation['language'] || "en",
-          total_questions: evaluation['num_questions'] || 10,
-          completed_questions: evaluation['questions_asked'] || 10,
-          status: 'completed',
-          overall_score: (evaluation['overall_score'] || 0) * 10,
-          started_at: Time.current - 15.minutes,
-          completed_at: Time.current
-        )
-        
-        if evaluation['per_question'].is_a?(Array)
-          evaluation['per_question'].each do |q_data|
-            q = Question.find_or_create_by(text: q_data['question'], domain: domain) do |new_q|
-              new_q.difficulty = "intermediate"
-            end
-            
+        total_questions = per_question.any? ? per_question.size : clamp_int(evaluation["num_questions"], 1, MAX_QUESTIONS, 1)
+        now = Time.current
+
+        @session = nil
+        @report = nil
+
+        ActiveRecord::Base.transaction do
+          domain = Domain.for_interview_type!(interview_type)
+
+          @session = current_user.interview_sessions.create!(
+            domain: domain,
+            title: title,
+            interview_type: interview_type,
+            difficulty: "intermediate",
+            language: evaluation["language"] || "en",
+            total_questions: total_questions,
+            completed_questions: per_question.size,
+            status: "completed",
+            overall_score: to_percent(evaluation["overall_score"]),
+            started_at: parse_started_at(params[:startedAt], now),
+            completed_at: now
+          )
+
+          per_question.each do |q_data|
+            question = Question.create!(domain: domain, text: q_data["question"], difficulty: "intermediate")
             @session.answers.create!(
-              question: q,
-              transcript: q_data['answer'],
+              question: question,
+              transcript: q_data["answer"],
               duration: 60,
-              score: (q_data['score'] || 0) * 10,
-              strengths: q_data['strengths'] || [],
-              weaknesses: q_data['improvements'] || [],
-              feedback: q_data['feedback']
+              score: to_percent(q_data["score"]),
+              strengths: q_data["strengths"],
+              weaknesses: q_data["improvements"],
+              feedback: q_data["feedback"]
             )
           end
-        end
-        
-        # Calculate non-verbal score from attention summary if available
-        nv_score = 0
-        if nonverbal_report && nonverbal_report['attentionSummary']
-          nv_score = nonverbal_report['attentionSummary']['averageScore'] || 0
+
+          @report = Report.create!(
+            session_id: @session.id,
+            user: current_user,
+            overall_score: to_percent(evaluation["overall_score"]),
+            verbal_score: to_percent(evaluation["communication_score"]),
+            non_verbal_score: nonverbal[:average_attention_score],
+            overall_strengths: evaluation["top_strengths"],
+            overall_weaknesses: evaluation["areas_to_improve"],
+            recommendations: evaluation["improvement_points"],
+            behavioral_summary: {
+              nonVerbalData: nonverbal,
+              evaluation: evaluation
+            }
+          )
         end
 
-        @report = Report.create!(
-          session_id: @session.id,
-          user: current_user,
-          overall_score: (evaluation['overall_score'] || 0) * 10,
-          verbal_score: (evaluation['communication_score'] || 0) * 10,
-          non_verbal_score: nv_score,
-          overall_strengths: evaluation['top_strengths'] || [],
-          overall_weaknesses: evaluation['areas_to_improve'] || [],
-          recommendations: evaluation['improvement_points'] || [],
-          behavioral_summary: {
-            nonVerbalData: {
-              average_attention_score: nv_score,
-              attention_distribution: {
-                attentive: nonverbal_report.dig('attentionSummary', 'stateDistribution', 'ATTENTIVE', 'percentage').to_f / 100,
-                partially_attentive: nonverbal_report.dig('attentionSummary', 'stateDistribution', 'PARTIALLY ATTENTIVE', 'percentage').to_f / 100,
-                disengaged: nonverbal_report.dig('attentionSummary', 'stateDistribution', 'DISENGAGED', 'percentage').to_f / 100
-              },
-              disengagement_reasons: nonverbal_report['disengagementReasons']&.each_with_object({}) { |r, h| h[r['reason']] = r['count'] },
-              hand_activity: {
-                calm: nonverbal_report.dig('handActivitySummary', 'calm', 'percentage').to_f / 100,
-                moderate: nonverbal_report.dig('handActivitySummary', 'moderate', 'percentage').to_f / 100,
-                excessive: nonverbal_report.dig('handActivitySummary', 'excessive', 'percentage').to_f / 100
-              }
-            },
-            evaluation: evaluation
-          }
-        )
-        
         render json: { success: true, session_id: @session.id, report_id: @report.id }
-      rescue => e
-        render json: { error: e.message }, status: :unprocessable_entity
+      rescue StandardError => e
+        Rails.logger.error("sync_ai_session failed: #{e.class}: #{e.message}\n#{Array(e.backtrace).first(15).join("\n")}")
+        render json: { error: "Could not save interview results" }, status: :unprocessable_entity
       end
 
       private
 
-      def session_params
-        p = params.permit(:domainId, :difficulty, :language)
+      def hash_param(key)
+        value = params[key]
+        return value.to_unsafe_h if value.is_a?(ActionController::Parameters)
+
+        nil
+      end
+
+      def sanitize_evaluation(raw)
+        per_question = Array(raw["per_question"]).first(MAX_QUESTIONS).filter_map do |q|
+          next unless q.is_a?(Hash)
+
+          {
+            "question" => text(q["question"], 1000).presence || "Question",
+            "answer" => text(q["answer"], 5000),
+            "score" => clamp_score(q["score"]),
+            "strengths" => list(q["strengths"]),
+            "improvements" => list(q["improvements"]),
+            "feedback" => text(q["feedback"], 2000),
+            "recommendation" => text(q["recommendation"], 2000)
+          }
+        end
+
+        hire = text(raw["hire_recommendation"], 50)
+
         {
-          domain_id: p[:domainId],
-          difficulty: p[:difficulty],
-          language: p[:language],
-          total_questions: 5 
+          "target_role" => text(raw["target_role"], 100),
+          "language" => text(raw["language"], 10).presence || "en",
+          "num_questions" => clamp_int(raw["num_questions"], 1, MAX_QUESTIONS, nil),
+          "questions_asked" => clamp_int(raw["questions_asked"], 0, MAX_QUESTIONS, per_question.size),
+          "is_complete" => ActiveModel::Type::Boolean.new.cast(raw["is_complete"]) || false,
+          "overall_score" => clamp_score(raw["overall_score"]),
+          "communication_score" => clamp_score(raw["communication_score"]),
+          "technical_score" => clamp_score(raw["technical_score"]),
+          "hire_recommendation" => HIRE_RECOMMENDATIONS.include?(hire) ? hire : nil,
+          "top_strengths" => list(raw["top_strengths"]),
+          "areas_to_improve" => list(raw["areas_to_improve"]),
+          "summary" => text(raw["summary"], 2000),
+          "recommendation_summary" => text(raw["recommendation_summary"], 2000),
+          "improvement_points" => list(raw["improvement_points"]),
+          "per_question" => per_question
         }
+      end
+
+      # Keeps the nonVerbalData shape the report page reads (camelized on output).
+      def sanitize_nonverbal(raw)
+        raw = {} unless raw.is_a?(Hash)
+        attention = raw["attentionSummary"].is_a?(Hash) ? raw["attentionSummary"] : {}
+        states = attention["stateDistribution"].is_a?(Hash) ? attention["stateDistribution"] : {}
+        hands = raw["handActivitySummary"].is_a?(Hash) ? raw["handActivitySummary"] : {}
+
+        reasons = Array(raw["disengagementReasons"]).first(MAX_LIST_ITEMS).each_with_object({}) do |r, h|
+          next unless r.is_a?(Hash)
+
+          reason = text(r["reason"], 300)
+          next if reason.blank?
+
+          h[reason] = clamp_int(r["count"], 0, 100_000, 0)
+        end
+
+        {
+          average_attention_score: clamp_float(attention["averageScore"], 0, 100).round(1),
+          attention_distribution: {
+            attentive: fraction(states.dig("ATTENTIVE", "percentage")),
+            partially_attentive: fraction(states.dig("PARTIALLY ATTENTIVE", "percentage")),
+            disengaged: fraction(states.dig("DISENGAGED", "percentage"))
+          },
+          disengagement_reasons: reasons,
+          hand_activity: {
+            calm: fraction(hands.dig("calm", "percentage")),
+            moderate: fraction(hands.dig("moderate", "percentage")),
+            excessive: fraction(hands.dig("excessive", "percentage"))
+          }
+        }
+      end
+
+      def parse_started_at(value, now)
+        default = now - 15.minutes
+        return default unless value.is_a?(String) && value.present?
+
+        parsed = Time.zone.iso8601(value)
+        parsed.clamp(now - 3.hours, now)
+      rescue ArgumentError
+        default
+      end
+
+      def text(value, max)
+        return "" if value.is_a?(Hash) || value.is_a?(Array)
+
+        value.to_s.strip.truncate(max)
+      end
+
+      def list(value)
+        Array(value).first(MAX_LIST_ITEMS).filter_map do |item|
+          next if item.is_a?(Hash) || item.is_a?(Array)
+
+          text(item, 300).presence
+        end
+      end
+
+      def numeric(value)
+        Float(value.to_s, exception: false)&.then { |f| f.finite? ? f : nil }
+      end
+
+      def clamp_float(value, min, max)
+        (numeric(value) || 0.0).clamp(min, max)
+      end
+
+      def clamp_int(value, min, max, default)
+        n = numeric(value)
+        n.nil? ? default : n.round.clamp(min, max)
+      end
+
+      # AI scores are on a 0–10 scale.
+      def clamp_score(value)
+        clamp_float(value, 0, 10)
+      end
+
+      def to_percent(score_0_to_10)
+        (score_0_to_10.to_f.clamp(0, 10) * 10).round(1)
+      end
+
+      def fraction(percentage)
+        (clamp_float(percentage, 0, 100) / 100.0).round(4)
       end
     end
   end

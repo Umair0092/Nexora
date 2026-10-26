@@ -7,27 +7,21 @@ Rails.application.routes.draw do
 
   namespace :api do
     namespace :v1 do
-      post 'login', to: 'auth#login'
-      post 'register', to: 'auth#register'
-      get 'me', to: 'auth#user'
+      post "login", to: "auth#login"
+      post "register", to: "auth#register"
+      get "me", to: "auth#user"
 
-      resources :domains, only: [:index, :show]
-      
-      resources :sessions, controller: 'interview_sessions', only: [:index, :show, :create] do
+      resources :domains, only: [ :index, :show ]
+
+      resources :sessions, controller: "interview_sessions", only: [ :index, :show ] do
          collection do
-           get 'stats'
-           post 'sync_ai_session'
+           get "stats"
+           post "sync_ai_session"
          end
-         member do
-           post 'complete'
-         end
-         
-         resources :answers, only: [:index, :create, :update]
-         resource :report, only: [:show]
+
+         resource :report, only: [ :show ]
       end
-      resource :profile, only: [:show, :update], controller: 'profile' do
-         post 'upload_resume'
-      end
+      resource :profile, only: [ :show, :update ], controller: "profile"
     end
   end
 end
