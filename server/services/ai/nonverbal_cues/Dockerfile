@@ -1,12 +1,16 @@
-# Use Python 3.10 slim image
-FROM python:3.10-slim
+# Use Python 3.12 slim image (mediapipe ships 3.12 wheels since 0.10.9)
+FROM python:3.12-slim-bookworm
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies for OpenCV and MediaPipe
+# libgles2-mesa is required by MediaPipe FaceLandmarker (libGLESv2.so.2)
+# libegl1 is its EGL companion, also pulled in by mediapipe's GL stack
 RUN apt-get update && apt-get install -y \
     libgl1 \
+    libgles2-mesa \
+    libegl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \

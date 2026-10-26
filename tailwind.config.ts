@@ -6,9 +6,9 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        lg: ".75rem", /* 12px — panels */
+        md: ".5rem", /* 8px — controls */
+        sm: ".25rem", /* 4px — chips */
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -75,15 +75,17 @@ export default {
           foreground: "hsl(var(--sidebar-accent-foreground) / <alpha-value>)",
           border: "var(--sidebar-accent-border)"
         },
-        status: {
-          online: "rgb(34 197 94)",
-          away: "rgb(245 158 11)",
-          busy: "rgb(239 68 68)",
-          offline: "rgb(156 163 175)",
+        signal: {
+          DEFAULT: "hsl(var(--signal) / <alpha-value>)",
+          foreground: "hsl(var(--signal-foreground) / <alpha-value>)",
         },
+        tally: "hsl(var(--tally) / <alpha-value>)",
+        success: "hsl(var(--success) / <alpha-value>)",
+        warning: "hsl(var(--warning) / <alpha-value>)",
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
+        display: ["var(--font-display)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },

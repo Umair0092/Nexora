@@ -5,10 +5,10 @@ services:
     env_file: .env.docker
     environment:
       POSTGRES_USER: nexora
-      POSTGRES_PASSWORD: password
       POSTGRES_DB: nexora_production
-    ports:
-      - "5432:5432"
+      # POSTGRES_PASSWORD comes from .env.docker
+    # Not published to the host: only the other containers can reach it.
+    # For a shell, use `docker compose exec db psql -U nexora nexora_production`.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -79,13 +79,17 @@ services:
       ai-nonverbal:
         condition: service_started
 
+  # Public tunnel — opt in with `docker compose --profile tunnel up`.
   ngrok:
     image: ngrok/ngrok:latest
-    restart: always
+    profiles: ["tunnel"]
+    restart: unless-stopped
     env_file: .env.docker
     command:
       - "http"
       - "gateway:5000"
+    ports:
+      - "4040:4040"
     depends_on:
       gateway:
         condition: service_started

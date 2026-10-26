@@ -2,55 +2,49 @@ module Api
   module V1
     class ProfileController < ApplicationController
       def show
-        render json: current_user.as_json(only: [:id, :email, :first_name, :last_name, :profile_image_url, :bio, :skills, :experience, :resume_url])
+        render json: UserSerializer.call(current_user)
       end
 
       def update
         if current_user.update(user_params)
-          render json: current_user.as_json(only: [:id, :email, :first_name, :last_name, :profile_image_url, :bio, :skills, :experience, :resume_url])
+          render json: UserSerializer.call(current_user)
         else
           render json: { errors: current_user.errors.full_messages }, status: :unprocessable_entity
-        end
-      end
-
-      def upload_resume
-        # In a real app, this would handle ActiveStorage upload
-        # Here we mock the upload and extraction process
-        
-        # Simulate processing delay
-        sleep 1
-
-        # Mock extracting data from a resume
-        extracted_data = {
-          bio: "Experienced software engineer with a passion for building scalable web applications. Proven track record in full-stack development using modern technologies.",
-          skills: ["Ruby", "Rails", "React", "TypeScript", "PostgreSQL", "Docker", "AWS"],
-          experience: [
-            {
-              title: "Senior Software Engineer",
-              company: "Tech Corp",
-              duration: "2020 - Present",
-              description: "Leading a team of developers to build high-performance web solutions."
-            },
-            {
-              title: "Software Developer",
-              company: "Startup Inc",
-              duration: "2018 - 2020",
-              description: "Developed and maintained multiple client-facing applications."
-            }
-          ]
-        }
-
-        if current_user.update(extracted_data.merge(resume_url: "https://example.com/resume.pdf"))
-           render json: current_user.as_json(only: [:id, :email, :first_name, :last_name, :profile_image_url, :bio, :skills, :experience, :resume_url])
-        else
-           render json: { errors: current_user.errors.full_messages }, status: :unprocessable_entity
         end
       end
 
       private
 
       def user_params
-        params.require(:user).permit(:first_name, :last_name, :bio, :resume_url, skills: [], experience: [:title, :company, :duration, :description])
+        raw = params.require(:user)
+        permitted = raw.permit(
+          :first_name, :last_name, :firstName, :lastName, :bio,
+          skills: [], experience: [ :title, :company, :duration, :description ]
+        )
+
+        attrs = {}
+        attrs[:first_name] = permitted[:first_name] if permitted.key?(:first_name)
+        attrs[:first_name] = permitted[:firstName] if permitted.key?(:firstName)
+        attrs[:last_name] = permitted[:last_name] if permitted.key?(:last_name)
+        attrs[:last_name] = permitted[:lastName] if permitted.key?(:lastName)
+        attrs[:bio] = permitted[:bio] if permitted.key?(:bio)
+        attrs[:skills] = Array(permitted[:skills]).map { |s| s.to_s.strip.truncate(100) }.reject(&:blank?).uniq.first(50) if permitted.key?(:skills)
+        attrs[:experience] = experience_param(raw) if raw.key?(:experience)
+        attrs
+      end
+
+      # Experience must be an array of hashes; anything else is passed through
+      # as-is so the model validation rejects it with a clear error.
+      def experience_param(raw)
+        value = raw[:experience]
+        return [] if value.nil?
+        return value unless value.is_a?(Array)
+
+        value.map do |entry|
+          next entry unless entry.is_a?(ActionController::Parameters)
+
+          entry.permit(:title, :company, :duration, :description).to_h.transform_values { |v| v.is_a?(String) ? v.truncate(2000) : v }
+        end
       end
     end
   end

@@ -14,23 +14,29 @@ Endpoints:
 import os
 import uuid
 import asyncio
+import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Literal
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from session import QuizSession, EvaluationResult, QuestionEvaluation
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-SESSION_TTL_MINUTES = int(os.getenv("SESSION_TTL_MINUTES", 60))
+SESSION_TTL_MINUTES = int(os.getenv("FEEDBACK_SESSION_TTL_MINUTES", 60))
+# Max concurrently active quiz sessions per owner (X-User-Id). Creating one
+# more evicts that owner's oldest session.
+MAX_SESSIONS_PER_OWNER = int(os.getenv("FEEDBACK_MAX_SESSIONS_PER_OWNER", 5))
+
+logger = logging.getLogger("interview_feedback.api")
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "new_interview_questions.csv")
 
@@ -48,7 +54,9 @@ DF: pd.DataFrame = _load_df()
 VALID_ROLES: List[str] = sorted(DF["Category"].unique().tolist())
 
 # ─── Session store ────────────────────────────────────────────────────────────
-# { session_id: { "quiz": QuizSession, "last_accessed": datetime } }
+# { session_id: { "quiz": QuizSession, "owner": str | None,
+#                  "created_at": datetime, "last_accessed": datetime } }
+# `owner` is the trusted X-User-Id header injected by the gateway.
 SESSION_STORE: dict = {}
 
 
@@ -57,7 +65,7 @@ SESSION_STORE: dict = {}
 async def cleanup_expired_sessions():
     while True:
         await asyncio.sleep(300)
-        cutoff = datetime.utcnow() - timedelta(minutes=SESSION_TTL_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=SESSION_TTL_MINUTES)
         expired = [sid for sid, d in SESSION_STORE.items() if d["last_accessed"] < cutoff]
         for sid in expired:
             SESSION_STORE.pop(sid, None)
@@ -96,6 +104,10 @@ class CreateQuizRequest(BaseModel):
     target_role: str = Field(..., description="One of the available categories")
     num_questions: int = Field(default=5, ge=1, le=20, description="Number of questions (1–20)")
     difficulty: str = Field(default="medium", description="easy | medium | hard")
+    language: Literal["en", "ur", "fr", "es"] = Field(
+        default="en",
+        description="Quiz language: 'en' English, 'ur' Urdu, 'fr' French, 'es' Spanish",
+    )
 
 
 class CreateQuizResponse(BaseModel):
@@ -106,6 +118,7 @@ class CreateQuizResponse(BaseModel):
     first_question: str
     questions_asked: int
     is_complete: bool
+    language: str
 
 
 class AnswerRequest(BaseModel):
@@ -121,17 +134,20 @@ class AnswerResponse(BaseModel):
 
 class TranscriptEntry(BaseModel):
     question: str
-    ideal_answer: str
     answer: str
+    ideal_answer: Optional[str] = None   # only revealed once the quiz is complete
 
 
 class TranscriptResponse(BaseModel):
     session_id: str
     target_role: str
     difficulty: str
-    questions_asked: int
+    language: str
+    questions_answered: int              # answered so far
+    questions_asked: int                 # shown so far, incl. the current one
     num_questions: int
     is_complete: bool
+    current_question: Optional[str]      # current unanswered question (None when complete)
     transcript: List[TranscriptEntry]
 
 
@@ -148,6 +164,7 @@ class QuestionEvaluationOut(BaseModel):
 class EvaluationResponse(BaseModel):
     session_id: str
     target_role: str
+    language: str
     questions_asked: int
     is_complete: bool
     overall_score: int
@@ -160,17 +177,57 @@ class EvaluationResponse(BaseModel):
     per_question: List[QuestionEvaluationOut]
 
 
-# ─── Helper ───────────────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def get_session(session_id: str) -> dict:
+def current_owner(x_user_id: Optional[str] = Header(None, alias="X-User-Id")) -> Optional[str]:
+    """
+    The caller's user id, as forwarded by the gateway after JWT verification.
+    The gateway strips any client-supplied X-User-Id, so this value is trusted.
+    Returns None when the header is absent (e.g. direct local calls).
+    """
+    return x_user_id.strip() if x_user_id and x_user_id.strip() else None
+
+
+def get_session(session_id: str, owner: Optional[str]) -> dict:
+    """
+    Fetch a session or raise 404. Updates last_accessed timestamp.
+
+    A session created with an owner is only visible to that same owner; any
+    other caller gets the same 404 as for a missing session so ids can't be
+    probed.
+    """
     entry = SESSION_STORE.get(session_id)
-    if not entry:
+    if not entry or (entry.get("owner") and entry["owner"] != owner):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' not found. It may have expired (TTL: {SESSION_TTL_MINUTES} min).",
         )
-    entry["last_accessed"] = datetime.utcnow()
+    entry["last_accessed"] = datetime.now(timezone.utc)
     return entry
+
+
+def store_session(quiz: QuizSession, owner: Optional[str]) -> str:
+    """
+    Save a new session and return its id. If the owner already has
+    MAX_SESSIONS_PER_OWNER active sessions, their oldest ones are evicted.
+    """
+    if owner and MAX_SESSIONS_PER_OWNER > 0:
+        owned = sorted(
+            (sid for sid, d in SESSION_STORE.items() if d.get("owner") == owner),
+            key=lambda sid: SESSION_STORE[sid]["created_at"],
+        )
+        for sid in owned[: max(0, len(owned) - MAX_SESSIONS_PER_OWNER + 1)]:
+            SESSION_STORE.pop(sid, None)
+
+    now = datetime.now(timezone.utc)
+    session_id = str(uuid.uuid4())
+    SESSION_STORE[session_id] = {
+        "quiz": quiz,
+        "owner": owner,
+        "created_at": now,
+        "last_accessed": now,
+    }
+    return session_id
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -216,7 +273,7 @@ def list_categories():
     tags=["Quiz"],
     summary="Start a new quiz session",
 )
-def create_quiz(body: CreateQuizRequest):
+def create_quiz(body: CreateQuizRequest, owner: Optional[str] = Depends(current_owner)):
     """
     Create a new quiz session. Returns a `session_id` and the first question.
 
@@ -225,9 +282,13 @@ def create_quiz(body: CreateQuizRequest):
     {
       "target_role": "SQL",
       "num_questions": 5,
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "language": "en"
     }
     ```
+
+    `language` is one of `en`, `ur`, `fr`, `es`. If translating the questions
+    fails, the quiz silently falls back to English questions.
 
     **Example response `201 Created`:**
     ```json
@@ -238,9 +299,14 @@ def create_quiz(body: CreateQuizRequest):
       "num_questions": 5,
       "first_question": "What is the purpose of the HAVING clause?",
       "questions_asked": 1,
-      "is_complete": false
+      "is_complete": false,
+      "language": "en"
     }
     ```
+
+    `num_questions` is the number of questions actually selected, which can be
+    lower than requested when the category pool is small. `questions_asked`
+    counts questions shown so far, including the current one.
 
     **Error responses:**
     - `400` — Invalid target_role or difficulty
@@ -262,15 +328,13 @@ def create_quiz(body: CreateQuizRequest):
             role=body.target_role,
             num_questions=body.num_questions,
             difficulty=body.difficulty.lower(),
+            language=body.language,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    first_question = quiz.current_question
-    quiz.questions_asked = 1  # mark first question as "asked"
-
-    session_id = str(uuid.uuid4())
-    SESSION_STORE[session_id] = {"quiz": quiz, "last_accessed": datetime.utcnow()}
+    first_question = quiz.get_translated_question(quiz.current_question)
+    session_id = store_session(quiz, owner)
 
     return {
         "session_id": session_id,
@@ -280,6 +344,7 @@ def create_quiz(body: CreateQuizRequest):
         "first_question": first_question,
         "questions_asked": quiz.questions_asked,
         "is_complete": quiz.is_complete,
+        "language": quiz.language,
     }
 
 
@@ -290,10 +355,11 @@ def create_quiz(body: CreateQuizRequest):
     tags=["Quiz"],
     summary="Submit an answer and get the next question",
 )
-def submit_answer(session_id: str, body: AnswerRequest):
+def submit_answer(session_id: str, body: AnswerRequest, owner: Optional[str] = Depends(current_owner)):
     """
     Submit the candidate's answer to the current question.
     Returns the next question, or signals completion when all questions are answered.
+    The Nth answer submitted is always stored against the Nth question shown.
 
     **Example response — still in progress:**
     ```json
@@ -319,7 +385,7 @@ def submit_answer(session_id: str, body: AnswerRequest):
     - `404` — Session not found or expired
     - `410` — Quiz already complete
     """
-    entry = get_session(session_id)
+    entry = get_session(session_id, owner)
     quiz: QuizSession = entry["quiz"]
 
     if quiz.is_complete:
@@ -329,9 +395,10 @@ def submit_answer(session_id: str, body: AnswerRequest):
         )
 
     next_q, is_complete = quiz.submit_answer(body.answer)
+    translated_q = quiz.get_translated_question(next_q) if next_q else None
 
     return {
-        "next_question": next_q,
+        "next_question": translated_q,
         "questions_asked": quiz.questions_asked,
         "num_questions": quiz.num_questions,
         "is_complete": is_complete,
@@ -345,23 +412,48 @@ def submit_answer(session_id: str, body: AnswerRequest):
     tags=["Quiz"],
     summary="Get all answered questions so far",
 )
-def get_transcript(session_id: str):
+def get_transcript(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
-    Returns all answered Q&A pairs including the ideal answer for each question.
+    Returns the answered Q&A pairs so far plus the current unanswered question
+    (useful to resume a quiz after a page reload).
+
+    `ideal_answer` is only included once the quiz is complete; while it is in
+    progress it is `null` so the expected answers cannot be read ahead.
+
+    **Example response `200 OK`** (in progress):
+    ```json
+    {
+      "session_id": "f3a2c1b4-...",
+      "target_role": "SQL",
+      "difficulty": "medium",
+      "language": "en",
+      "questions_answered": 1,
+      "questions_asked": 2,
+      "num_questions": 5,
+      "is_complete": false,
+      "current_question": "How do you perform a SQL self-join?",
+      "transcript": [
+        { "question": "What is the purpose of the HAVING clause?", "answer": "It filters groups...", "ideal_answer": null }
+      ]
+    }
+    ```
 
     **Error responses:**
     - `404` — Session not found or expired
     """
-    entry = get_session(session_id)
+    entry = get_session(session_id, owner)
     quiz: QuizSession = entry["quiz"]
 
     return {
         "session_id": session_id,
         "target_role": quiz.target_role,
         "difficulty": quiz.difficulty,
-        "questions_asked": quiz.questions_asked - 1,  # answered = asked - 1 (current unanswered)
+        "language": quiz.language,
+        "questions_answered": quiz.answered,
+        "questions_asked": quiz.questions_asked,
         "num_questions": quiz.num_questions,
         "is_complete": quiz.is_complete,
+        "current_question": quiz.get_translated_question(quiz.current_question),
         "transcript": quiz.get_transcript(),
     }
 
@@ -373,7 +465,7 @@ def get_transcript(session_id: str):
     tags=["Quiz"],
     summary="Evaluate all answers with AI feedback",
 )
-def evaluate_quiz(session_id: str):
+def evaluate_quiz(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
     Send all answered Q&A pairs (with ideal answers) to Gemini and receive a
     structured evaluation with per-question scores and an overall summary.
@@ -413,10 +505,10 @@ def evaluate_quiz(session_id: str):
     - `400` — No answers submitted yet
     - `503` — LLM unavailable or quota exhausted
     """
-    entry = get_session(session_id)
+    entry = get_session(session_id, owner)
     quiz: QuizSession = entry["quiz"]
 
-    answered = len(quiz.get_transcript())
+    answered = quiz.answered
     if answered == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -429,14 +521,17 @@ def evaluate_quiz(session_id: str):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception:
+        logger.exception("Unexpected error evaluating quiz %s", session_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Evaluation failed due to an internal error. Please try again later.",
+        )
 
     return {
         "session_id": session_id,
         "target_role": quiz.target_role,
+        "language": quiz.language,
         "questions_asked": answered,
         "is_complete": quiz.is_complete,
         "overall_score": result.overall_score,
@@ -456,7 +551,7 @@ def evaluate_quiz(session_id: str):
     tags=["Quiz"],
     summary="End and clean up a quiz session",
 )
-def delete_session(session_id: str):
+def delete_session(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
     Manually remove a session from memory.
 
@@ -465,13 +560,9 @@ def delete_session(session_id: str):
     **Error responses:**
     - `404` — Session not found
     """
-    if session_id not in SESSION_STORE:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session '{session_id}' not found.",
-        )
-    SESSION_STORE.pop(session_id)
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+    get_session(session_id, owner)
+    SESSION_STORE.pop(session_id, None)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ─── Run ──────────────────────────────────────────────────────────────────────

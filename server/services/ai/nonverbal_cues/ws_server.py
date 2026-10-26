@@ -89,6 +89,8 @@ import asyncio
 import base64
 import json
 import logging
+import os
+import time
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,17 +104,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ws_server")
 
+# ── Limits ────────────────────────────────────────────────────────────────────
+# A base64 frame larger than this is rejected (error sent, connection kept).
+MAX_FRAME_B64_BYTES = 2 * 1024 * 1024
+# Any single WS message larger than this closes the connection (1009).
+MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+# Frames arriving sooner than this after the last processed one are dropped
+# (caps processing at ~6-7 fps per client; the frontend sends ~3 fps).
+MIN_FRAME_INTERVAL_S = 0.15
+
+# ── Origins ───────────────────────────────────────────────────────────────────
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:5173",   # Vite dev server
+    "http://127.0.0.1:5173",
+    "http://localhost:5000",   # Express / prod static
+    "http://127.0.0.1:5000",
+]
+
+
+def _env_list(name: str) -> list:
+    """
+    Parse a comma-separated env var into a list of non-empty, stripped items.
+
+    Example:
+        NONVERBAL_CORS_ORIGINS="https://a.com, https://b.com"
+        _env_list("NONVERBAL_CORS_ORIGINS") -> ["https://a.com", "https://b.com"]
+    """
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
+
+CORS_ORIGINS = _env_list("NONVERBAL_CORS_ORIGINS") or DEFAULT_CORS_ORIGINS
+# When set, WS handshakes whose Origin header isn't listed are rejected.
+# Unset (default) = no Origin check, so the same-origin gateway proxy and
+# local tools keep working.
+WS_ALLOWED_ORIGINS = set(_env_list("NONVERBAL_ALLOWED_ORIGINS"))
+
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(title="Nexora Nonverbal Cue WS Service", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # Vite dev server
-        "http://127.0.0.1:5173",
-        "http://localhost:5000",   # Express / prod static
-        "http://127.0.0.1:5000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -128,16 +160,30 @@ async def health():
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
 @app.websocket("/ws/nonverbal")
 async def nonverbal_endpoint(websocket: WebSocket):
+    if WS_ALLOWED_ORIGINS:
+        origin = websocket.headers.get("origin")
+        if origin not in WS_ALLOWED_ORIGINS:
+            logger.warning("Rejected WS handshake from origin %r", origin)
+            await websocket.close(code=1008)  # policy violation
+            return
+
     await websocket.accept()
     logger.info("Client connected: %s", websocket.client)
 
     # One FrameProcessor per connection — isolated detector state per session
     processor = FrameProcessor()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
+    last_processed_at = 0.0
 
     try:
         while True:
             raw = await websocket.receive_text()
+
+            # ── Size guard ────────────────────────────────────────────────
+            if len(raw) > MAX_MESSAGE_BYTES:
+                logger.warning("Closing %s: message of %d bytes exceeds limit", websocket.client, len(raw))
+                await websocket.close(code=1009)  # message too big
+                break
 
             # ── Parse envelope ────────────────────────────────────────────
             try:
@@ -154,6 +200,21 @@ async def nonverbal_endpoint(websocket: WebSocket):
             # ── Frame message ─────────────────────────────────────────────
             if msg_type == "frame":
                 b64 = msg.get("frameData", "")
+                if not isinstance(b64, str):
+                    b64 = ""
+                if len(b64) > MAX_FRAME_B64_BYTES:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "frame too large",
+                    }))
+                    continue
+
+                # Throttle: drop frames that arrive faster than we process them
+                now = time.monotonic()
+                if now - last_processed_at < MIN_FRAME_INTERVAL_S:
+                    continue
+                last_processed_at = now
+
                 try:
                     jpeg_bytes = base64.b64decode(b64)
                 except Exception:

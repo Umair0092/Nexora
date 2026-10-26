@@ -1,525 +1,540 @@
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { OptionCard, OptionGroup } from "@/components/option-card";
+import { displayName, type InterviewType, type User } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   Code,
-  Briefcase,
-  DollarSign,
-  UserCheck,
-  LineChart,
-  Megaphone,
-  Stethoscope,
-  Scale,
+  Database,
   FileText,
-  User,
-  Upload,
+  Layers,
   Loader2,
-  Save,
+  Server,
+  Cloud,
+  Brain,
+  Upload,
+  UserRound,
+  Users,
+  CheckCircle2,
 } from "lucide-react";
-import type { Domain } from "@shared/schema";
 
-const domainIcons: Record<string, any> = {
-  "software-engineering": Code,
-  "marketing": Megaphone,
-  "finance": DollarSign,
-  "human-resources": UserCheck,
-  "data-science": LineChart,
-  "business": Briefcase,
-  "healthcare": Stethoscope,
-  "legal": Scale,
-};
-
-// Map domains to quiz API categories
-const domainToQuizCategory: Record<string, string> = {
-  "Software Engineering": "General Software Engineering",
-  "Product Management": "General Software Engineering",
-  "Data Science": "AI (Data Science)",
-  "Marketing": "General Software Engineering",
-  "Finance": "General Software Engineering",
-  "Human Resources": "General Software Engineering",
-};
-
-// Map difficulty levels
-const difficultyMapping: Record<string, string> = {
-  "beginner": "easy",
-  "intermediate": "medium",
-  "advanced": "hard",
-};
-
-const difficulties = [
-  { id: "beginner", label: "Beginner", description: "Basic entry-level" },
-  { id: "intermediate", label: "Intermediate", description: "Standard interview" },
-  { id: "advanced", label: "Advanced", description: "Senior roles" },
+const TYPES: { id: InterviewType; title: string; body: string; meta: string; icon: JSX.Element }[] = [
+  { id: "cv", title: "CV interview", body: "Questions about your own projects and experience.", meta: "5 questions, about 10 minutes", icon: <FileText /> },
+  { id: "role", title: "Technical quiz", body: "Knowledge questions for one track, marked against model answers.", meta: "5 questions, about 8 minutes", icon: <Code /> },
+  { id: "complete", title: "Full interview", body: "Five CV questions, then five technical ones.", meta: "10 questions, about 20 minutes", icon: <Layers /> },
+  { id: "behavioral", title: "Behavioral", body: "Teamwork, conflict and ownership, using your CV for context.", meta: "5 questions, about 10 minutes", icon: <Users /> },
 ];
 
-const languages = [
-  { code: "en", name: "English", flag: "🇺🇸" },
-  { code: "ur", name: "Urdu", flag: "🇵🇰" },
-  { code: "fr", name: "French", flag: "🇫🇷" },
-  { code: "es", name: "Spanish", flag: "🇪🇸" },
+const TRACK_ICONS: Record<string, JSX.Element> = {
+  "General Software Engineering": <Code />,
+  "AI (Data Science)": <Brain />,
+  SQL: <Database />,
+  DevOps: <Server />,
+  "Containers and Cloud": <Cloud />,
+};
+
+const TRACK_LABELS: Record<string, string> = {
+  "General Software Engineering": "Software Engineering",
+  "AI (Data Science)": "AI and Data Science",
+  "Containers and Cloud": "Containers and Cloud",
+};
+
+const DIFFICULTIES = [
+  { id: "easy", title: "Easy", body: "Fundamentals and definitions" },
+  { id: "medium", title: "Medium", body: "What most interviews ask" },
+  { id: "hard", title: "Hard", body: "Senior-level depth" },
 ];
 
-type InterviewType = "role" | "cv" | null;
-type Step = "type" | "domain" | "difficulty" | "language" | "cv_setup" | "confirm";
+const LANGUAGES = [
+  { code: "en", name: "English", native: "English" },
+  { code: "ur", name: "Urdu", native: "اردو" },
+  { code: "fr", name: "French", native: "Français" },
+  { code: "es", name: "Spanish", native: "Español" },
+];
+
+type Step = "type" | "cv" | "track" | "language" | "confirm";
+const STEP_LABELS: Record<Step, string> = {
+  type: "Format",
+  cv: "Your CV",
+  track: "Track",
+  language: "Language",
+  confirm: "Review",
+};
+
+function stepsFor(type: InterviewType | null): Step[] {
+  switch (type) {
+    case "role":
+      return ["type", "track", "language", "confirm"];
+    case "complete":
+      return ["type", "cv", "track", "language", "confirm"];
+    default:
+      return ["type", "cv", "language", "confirm"];
+  }
+}
+
+// Candidate data in the shape the resume service expects.
+interface CandidateData {
+  name: string;
+  degree: string;
+  summary?: string | null;
+  skills: string[];
+  work_experience?: { company: string; role: string; duration?: string | null; description?: string | null }[] | null;
+  projects_done?: string[] | null;
+  education?: unknown[] | null;
+  achievements?: string[] | null;
+}
+
+function candidateFromProfile(user: User): CandidateData {
+  return {
+    name: displayName(user) || "Candidate",
+    degree: "Not specified",
+    summary: user.bio || null,
+    skills: user.skills || [],
+    work_experience: (user.experience || []).map((exp) => ({
+      company: exp.company || "",
+      role: exp.title || "",
+      duration: exp.duration || null,
+      description: exp.description || null,
+    })),
+    projects_done: [],
+    education: [],
+    achievements: [],
+  };
+}
 
 export default function InterviewSetup() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  
-  const [interviewType, setInterviewType] = useState<InterviewType>(null);
-  const [step, setStep] = useState<Step>("type");
-  const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
-  const [selectedDifficulty, setSelectedDifficulty] = useState("intermediate");
-  const [selectedLanguage, setSelectedLanguage] = useState("en");
-  
-  // CV setup states
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const initialType = (() => {
+    const t = new URLSearchParams(window.location.search).get("type");
+    return TYPES.some((x) => x.id === t) ? (t as InterviewType) : null;
+  })();
+
+  const [interviewType, setInterviewType] = useState<InterviewType | null>(initialType);
+  const [step, setStep] = useState<Step>(initialType ? stepsFor(initialType)[1] : "type");
+  const [track, setTrack] = useState("General Software Engineering");
+  const [difficulty, setDifficulty] = useState("medium");
+  const [language, setLanguage] = useState("en");
   const [targetRole, setTargetRole] = useState("Software Engineer");
-  const [candidateData, setCandidateData] = useState<any>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [candidate, setCandidate] = useState<CandidateData | null>(null);
+  const [cvSource, setCvSource] = useState<"upload" | "profile" | null>(null);
+  const [dragging, setDragging] = useState(false);
 
-  const { data: domains, isLoading: domainsLoading } = useQuery<Domain[]>({
-    queryKey: ["/api/v1/domains"],
+  const { data: categories, isLoading: categoriesLoading } = useQuery<{ categories: string[] }>({
+    queryKey: ["/api/quiz/categories"],
+    staleTime: Infinity,
   });
 
-  const parseResumeMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      // Calls FastAPI parse logic via the Node proxy
-      const res = await fetch("/api/ai/v1/parse-resume", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to parse resume");
-      }
-      return res.json();
+  const steps = stepsFor(interviewType);
+  const stepIndex = steps.indexOf(step);
+  const profileHasCv = !!user && ((user.skills?.length ?? 0) > 0 || (user.experience?.length ?? 0) > 0 || !!user.bio);
+
+  const parseResume = useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api<{ candidate_data: CandidateData }>("/api/ai/v1/parse-resume", { method: "POST", body: form });
     },
     onSuccess: (data) => {
-      setCandidateData(data.candidate_data);
-      if (data.target_role) setTargetRole(data.target_role);
-      toast({
-        title: "Resume Parsed Successfully!",
-        description: "We extracted your details.",
-      });
+      setCandidate(data.candidate_data);
+      setCvSource("upload");
     },
-    onError: (error: any) => {
-      toast({
-        title: "Error Parsing Resume",
-        description: error.message,
-        variant: "destructive",
-      });
+    onError: (error) => {
+      toast({ title: "Couldn't read that CV", description: errorMessage(error), variant: "destructive" });
     },
   });
 
-  const updateProfileMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("PUT", "/api/v1/profile", { user: data });
-      return res.json();
+  const saveToProfile = useMutation({
+    mutationFn: (c: CandidateData) =>
+      api<User>("/api/v1/profile", {
+        method: "PUT",
+        body: {
+          user: {
+            bio: c.summary || "",
+            skills: c.skills || [],
+            experience: (c.work_experience || []).map((w) => ({
+              title: w.role,
+              company: w.company,
+              duration: w.duration || "",
+              description: w.description || "",
+            })),
+          },
+        },
+      }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/v1/me"], updated);
+      toast({ title: "Saved to your profile", description: "Next time you can skip the upload." });
     },
-    onSuccess: (updatedUser) => {
-      queryClient.setQueryData(["/api/v1/me"], updatedUser);
-      toast({
-        title: "Saved to Profile",
-        description: "Your extracted details have been saved to your profile DB.",
-      });
-    }
+    onError: (error) => {
+      toast({ title: "Couldn't save to profile", description: errorMessage(error), variant: "destructive" });
+    },
   });
 
-  const createSessionMutation = useMutation({
+  const startInterview = useMutation({
     mutationFn: async () => {
-      if (interviewType === "role") {
-        // Use Quiz API for role-based interviews
-        const quizCategory = domainToQuizCategory[selectedDomain?.name || ""] || "General Software Engineering";
-        const quizDifficulty = difficultyMapping[selectedDifficulty] || "medium";
-        
-        const res = await fetch("/api/quiz", {
+      const role = interviewType === "behavioral" ? "Behavioral Interview" : targetRole.trim() || "Software Engineer";
+      const createCv = () =>
+        api<{ session_id: string }>("/api/ai/v1/interviews", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            target_role: quizCategory,
-            num_questions: 5,
-            difficulty: quizDifficulty,
-          }),
+          body: { candidate_data: candidate, target_role: role, num_questions: 5, language },
         });
-        if (!res.ok) throw new Error("Failed to start role-based interview");
-        return res.json();
-      }
+      const createQuiz = (level: string) =>
+        api<{ session_id: string }>("/api/quiz", {
+          method: "POST",
+          body: { target_role: track, num_questions: 5, difficulty: level, language },
+        });
 
-      // CV-based uses existing AI interview service
-      const res = await fetch("/api/ai/v1/interviews", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          candidate_data: candidateData,
-          target_role: targetRole,
-          num_questions: 5
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to start CV-based interview");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      // data.session_id is the FastAPI session UUID
-      if (interviewType === "role") {
-        // Role-based uses quiz session
-        setLocation(`/interview/session/${data.session_id}?type=role&lang=${selectedLanguage}`);
-      } else {
-        // CV-based uses AI interview session
-        setLocation(`/interview/session/${data.session_id}?type=cv&lang=${selectedLanguage}`);
+      if (interviewType === "role") return { primary: await createQuiz(difficulty) };
+      if (interviewType === "complete") {
+        const [cv, quiz] = await Promise.all([createCv(), createQuiz("medium")]);
+        return { primary: cv, quiz };
       }
+      return { primary: await createCv() };
     },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to start AI interview session. Please try again.",
-        variant: "destructive",
-      });
+    onSuccess: ({ primary, quiz }) => {
+      const params = new URLSearchParams({ type: interviewType!, lang: language });
+      if (quiz) params.set("quizSessionId", quiz.session_id);
+      setLocation(`/interview/session/${primary.session_id}?${params}`);
+    },
+    onError: (error) => {
+      toast({ title: "Couldn't start the interview", description: errorMessage(error), variant: "destructive" });
     },
   });
 
-  const steps: Step[] = interviewType === "cv"
-    ? ["type", "cv_setup", "language", "confirm"]
-    : ["type", "domain", "difficulty", "language", "confirm"];
-
-  const currentStepIndex = steps.indexOf(step);
+  const canProceed = (() => {
+    switch (step) {
+      case "type":
+        return interviewType !== null;
+      case "cv":
+        return candidate !== null;
+      case "track":
+        return !!track;
+      default:
+        return true;
+    }
+  })();
 
   const goNext = () => {
-    if (step === "type" && !interviewType) return;
-    const nextIndex = currentStepIndex + 1;
-    if (nextIndex < steps.length) {
-      setStep(steps[nextIndex]);
-    }
+    if (!canProceed) return;
+    const next = steps[stepIndex + 1];
+    if (next) setStep(next);
   };
-
   const goBack = () => {
-    const prevIndex = currentStepIndex - 1;
-    if (prevIndex >= 0) {
-      setStep(steps[prevIndex]);
-    }
+    const prev = steps[stepIndex - 1];
+    if (prev) setStep(prev);
   };
 
-  const canProceed = () => {
-    switch (step) {
-      case "type": return interviewType !== null;
-      case "domain": return selectedDomain !== null;
-      case "cv_setup": return candidateData !== null;
-      case "difficulty": return selectedDifficulty !== "";
-      case "language": return selectedLanguage !== "";
-      default: return true;
-    }
+  const chooseType = (t: InterviewType) => {
+    setInterviewType(t);
   };
 
-  const getIconComponent = (domain: Domain) => {
-    const iconKey = domain.name.toLowerCase().replace(/\s+/g, "-");
-    return domainIcons[iconKey] || Briefcase;
-  };
-
-  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFile = (file: File | undefined) => {
     if (!file) return;
-    setIsUploading(true);
-    await parseResumeMutation.mutateAsync(file);
-    setIsUploading(false);
+    if (file.type && file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      toast({ title: "Upload a PDF", description: "Nexora can only read CVs saved as PDF.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "That file is too large", description: "Upload a PDF under 10 MB.", variant: "destructive" });
+      return;
+    }
+    parseResume.mutate(file);
   };
 
-  const loadProfileAsCV = () => {
-    if (!user) return;
-    setCandidateData({
-      name: user.username || "Candidate",
-      degree: "Not specified",
-      summary: user.bio || "No summary provided",
-      skills: user.skills || [],
-      work_experience: (user.experience || []).map((exp: any) => ({
-        company: exp.company || "",
-        role: exp.title || exp.role || "Employee",
-        duration: exp.duration || "",
-        description: exp.description || ""
-      })),
-      education: [],
-      projects_done: [],
-      achievements: []
-    });
-    toast({ title: "Profile Loaded", description: "Using your saved profile as context." });
-  };
-
-  const saveExtractedToProfile = () => {
-    if (!candidateData) return;
-    updateProfileMutation.mutate({
-      bio: candidateData.summary || "",
-      skills: candidateData.skills || [],
-      experience: candidateData.work_experience || []
-    });
-  };
+  const trackLabel = TRACK_LABELS[track] || track;
+  const langLabel = LANGUAGES.find((l) => l.code === language)?.name;
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Interview Setup</h1>
-        <p className="text-muted-foreground">Configure your AI practice session</p>
-      </div>
+    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:py-10">
+      <h1 className="text-3xl font-bold sm:text-4xl">New interview</h1>
 
-      <div className="mb-8">
-        <div className="flex items-center justify-between gap-2">
-          {steps.map((s, index) => (
-            <div key={s} className="flex items-center flex-1">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm transition-colors ${
-                  index <= currentStepIndex
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
-                }`}
+      {/* Progress: full labels from sm up, compact counter on phones */}
+      <nav aria-label="Setup progress" className="mt-6">
+        <p className="text-sm text-muted-foreground sm:hidden">
+          Step {stepIndex + 1} of {steps.length}: <span className="font-semibold text-foreground">{STEP_LABELS[step]}</span>
+        </p>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted sm:hidden">
+          <div className="h-full bg-primary transition-all" style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} />
+        </div>
+        <ol className="hidden items-center gap-2 sm:flex">
+          {steps.map((s, i) => (
+            <li key={s} className="flex flex-1 items-center gap-2" aria-current={s === step ? "step" : undefined}>
+              <span
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                  i < stepIndex && "bg-primary text-primary-foreground",
+                  i === stepIndex && "bg-foreground text-background",
+                  i > stepIndex && "bg-muted text-muted-foreground",
+                )}
               >
-                {index < currentStepIndex ? <Check className="w-5 h-5" /> : index + 1}
-              </div>
-              {index < steps.length - 1 && (
-                <div
-                  className={`flex-1 h-1 mx-2 rounded transition-colors ${
-                    index < currentStepIndex ? "bg-primary" : "bg-muted"
-                  }`}
-                />
-              )}
-            </div>
+                {i < stepIndex ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : i + 1}
+              </span>
+              <span className={cn("text-sm", i === stepIndex ? "font-semibold" : "text-muted-foreground")}>{STEP_LABELS[s]}</span>
+              {i < steps.length - 1 && <span className={cn("h-px flex-1", i < stepIndex ? "bg-primary" : "bg-border")} />}
+            </li>
           ))}
-        </div>
+        </ol>
+      </nav>
+
+      <div className="mt-8 min-h-[22rem]">
+        {step === "type" && (
+          <section>
+            <h2 className="text-xl font-semibold">What do you want to practise?</h2>
+            <OptionGroup label="Interview format" className="mt-5 grid gap-3 sm:grid-cols-2">
+              {TYPES.map((t) => (
+                <OptionCard
+                  key={t.id}
+                  selected={interviewType === t.id}
+                  onSelect={() => chooseType(t.id)}
+                  icon={t.icon}
+                  title={t.title}
+                  description={t.body}
+                  meta={t.meta}
+                  testId={`option-type-${t.id}`}
+                />
+              ))}
+            </OptionGroup>
+          </section>
+        )}
+
+        {step === "cv" && (
+          <section>
+            <h2 className="text-xl font-semibold">Give the interviewer your CV</h2>
+            <p className="mt-1 text-muted-foreground">Questions are based on what's in it, so the more detail the better.</p>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  handleFile(e.dataTransfer.files?.[0]);
+                }}
+                className={cn(
+                  "flex flex-col items-center justify-center rounded-xl border-2 border-dashed bg-card p-6 text-center transition-colors",
+                  dragging ? "border-primary bg-accent/50" : "border-input",
+                  cvSource === "upload" && "border-solid border-primary",
+                )}
+              >
+                {parseResume.isPending ? (
+                  <>
+                    <Loader2 className="h-7 w-7 animate-spin text-primary" aria-hidden="true" />
+                    <p className="mt-3 font-semibold">Reading your CV…</p>
+                    <p className="text-sm text-muted-foreground">This usually takes 10–20 seconds.</p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-7 w-7 text-primary" aria-hidden="true" />
+                    <p className="mt-3 font-semibold">{cvSource === "upload" ? "Upload a different PDF" : "Upload your CV"}</p>
+                    <p className="text-sm text-muted-foreground">PDF up to 10 MB. Drag it here or</p>
+                    <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => fileInput.current?.click()}>
+                      Choose file
+                    </Button>
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      className="sr-only"
+                      tabIndex={-1}
+                      aria-label="CV PDF file"
+                      onChange={(e) => {
+                        handleFile(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+
+              <OptionGroup label="Use saved profile">
+                <OptionCard
+                  selected={cvSource === "profile"}
+                  onSelect={() => {
+                    if (!user || !profileHasCv) {
+                      setLocation("/profile");
+                      return;
+                    }
+                    setCandidate(candidateFromProfile(user));
+                    setCvSource("profile");
+                  }}
+                  icon={<UserRound />}
+                  title="Use my saved profile"
+                  description={
+                    profileHasCv
+                      ? `${user?.skills?.length ?? 0} skills and ${user?.experience?.length ?? 0} roles saved`
+                      : "Your profile is empty. Fill it in first."
+                  }
+                  className="h-full"
+                />
+              </OptionGroup>
+            </div>
+
+            {candidate && (
+              <div className="mt-6 rounded-xl border bg-card p-5" aria-live="polite">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 font-semibold">
+                      <CheckCircle2 className="h-5 w-5 text-success" aria-hidden="true" />
+                      {cvSource === "upload" ? "CV read" : "Profile loaded"}: {candidate.name}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {candidate.skills?.length || 0} skills, {candidate.work_experience?.length || 0} roles,{" "}
+                      {candidate.projects_done?.length || 0} projects
+                    </p>
+                  </div>
+                  {cvSource === "upload" && (
+                    <Button variant="outline" size="sm" onClick={() => saveToProfile.mutate(candidate)} disabled={saveToProfile.isPending}>
+                      {saveToProfile.isPending && <Loader2 className="animate-spin" />}
+                      Save to profile
+                    </Button>
+                  )}
+                </div>
+                {candidate.skills?.length > 0 && (
+                  <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Skills found">
+                    {candidate.skills.slice(0, 12).map((s) => (
+                      <li key={s} className="rounded-sm bg-muted px-2 py-0.5 text-xs">{s}</li>
+                    ))}
+                    {candidate.skills.length > 12 && (
+                      <li className="px-1 text-xs text-muted-foreground">+{candidate.skills.length - 12} more</li>
+                    )}
+                  </ul>
+                )}
+                {interviewType !== "behavioral" && (
+                  <div className="mt-5 space-y-2">
+                    <Label htmlFor="target-role">Role you're interviewing for</Label>
+                    <Input
+                      id="target-role"
+                      value={targetRole}
+                      maxLength={100}
+                      onChange={(e) => setTargetRole(e.target.value)}
+                      placeholder="e.g. Frontend Developer"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {step === "track" && (
+          <section>
+            <h2 className="text-xl font-semibold">
+              {interviewType === "complete" ? "Pick the track for the technical half" : "Pick a technical track"}
+            </h2>
+            {categoriesLoading ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+              </div>
+            ) : (
+              <OptionGroup label="Technical track" className="mt-5 grid gap-3 sm:grid-cols-2">
+                {(categories?.categories ?? Object.keys(TRACK_ICONS)).map((c) => (
+                  <OptionCard
+                    key={c}
+                    selected={track === c}
+                    onSelect={() => setTrack(c)}
+                    icon={TRACK_ICONS[c] ?? <Code />}
+                    title={TRACK_LABELS[c] || c}
+                    testId={`option-track-${c}`}
+                  />
+                ))}
+              </OptionGroup>
+            )}
+
+            {interviewType === "role" && (
+              <>
+                <h3 className="mt-8 font-semibold">Difficulty</h3>
+                <OptionGroup label="Difficulty" className="mt-3 grid gap-3 sm:grid-cols-3">
+                  {DIFFICULTIES.map((d) => (
+                    <OptionCard key={d.id} selected={difficulty === d.id} onSelect={() => setDifficulty(d.id)} title={d.title} description={d.body} />
+                  ))}
+                </OptionGroup>
+              </>
+            )}
+          </section>
+        )}
+
+        {step === "language" && (
+          <section>
+            <h2 className="text-xl font-semibold">Which language will you answer in?</h2>
+            <p className="mt-1 text-muted-foreground">
+              Questions are read in English. Your spoken answers are transcribed and your feedback is written in this language.
+            </p>
+            <OptionGroup label="Answer language" className="mt-5 grid gap-3 sm:grid-cols-2">
+              {LANGUAGES.map((l) => (
+                <OptionCard
+                  key={l.code}
+                  selected={language === l.code}
+                  onSelect={() => setLanguage(l.code)}
+                  title={l.name}
+                  description={<span lang={l.code} dir={l.code === "ur" ? "rtl" : undefined}>{l.native}</span>}
+                />
+              ))}
+            </OptionGroup>
+          </section>
+        )}
+
+        {step === "confirm" && (
+          <section>
+            <h2 className="text-xl font-semibold">Ready when you are</h2>
+            <dl className="mt-5 divide-y rounded-xl border bg-card">
+              {[
+                ["Format", TYPES.find((t) => t.id === interviewType)?.title],
+                ...(interviewType === "cv" || interviewType === "complete" ? [["Role", targetRole]] : []),
+                ...(interviewType === "role" || interviewType === "complete" ? [["Track", trackLabel]] : []),
+                ...(interviewType === "role" ? [["Difficulty", DIFFICULTIES.find((d) => d.id === difficulty)?.title]] : []),
+                ["Answer language", langLabel],
+                ["Questions", interviewType === "complete" ? "10" : "5"],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-4 px-5 py-3.5">
+                  <dt className="text-muted-foreground">{k}</dt>
+                  <dd className="text-right font-semibold">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-5 rounded-xl bg-muted/60 p-5 text-sm">
+              <p className="font-semibold">Before you start</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                <li>Your browser will ask for camera and microphone access.</li>
+                <li>Sit facing a light source, with the camera at eye level.</li>
+                <li>Each question is read aloud. Recording starts when it finishes.</li>
+              </ul>
+            </div>
+          </section>
+        )}
       </div>
 
-      {step === "type" && (
-        <div>
-          <h2 className="text-xl font-semibold mb-2">How would you like to practice?</h2>
-          <p className="text-muted-foreground mb-6">Choose the base context for your AI interview.</p>
-          <div className="grid md:grid-cols-2 gap-4">
-            <Card
-              className={`cursor-pointer transition-all ${interviewType === "role" ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
-              onClick={() => setInterviewType("role")}
-            >
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                  <Briefcase className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Role Based</h3>
-                <p className="text-sm text-muted-foreground">Practice standard questions for a specific domain.</p>
-              </CardContent>
-            </Card>
-
-            <Card
-              className={`cursor-pointer transition-all ${interviewType === "cv" ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
-              onClick={() => setInterviewType("cv")}
-            >
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                  <FileText className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">With CV</h3>
-                <p className="text-sm text-muted-foreground">Upload your resume for highly personalized questions.</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {step === "cv_setup" && (
-        <div className="space-y-6">
-          <h2 className="text-xl font-semibold mb-2">Provide your CV Context</h2>
-          
-          <div className="grid md:grid-cols-2 gap-4">
-            <Card className="border-dashed cursor-pointer hover:bg-muted/50 transition-colors relative">
-              <input
-                type="file"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                accept=".pdf"
-                onChange={handleResumeUpload}
-                disabled={isUploading || parseResumeMutation.isPending}
-              />
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                 {isUploading || parseResumeMutation.isPending ? (
-                    <Loader2 className="w-8 h-8 text-primary animate-spin mb-4" />
-                 ) : (
-                    <Upload className="w-8 h-8 text-primary mb-4" />
-                 )}
-                <h3 className="font-semibold">Upload PDF Resume</h3>
-                <p className="text-xs text-muted-foreground mt-1">Our AI will extract your details instantly</p>
-              </CardContent>
-            </Card>
-
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={loadProfileAsCV}>
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <User className="w-8 h-8 text-primary mb-4" />
-                <h3 className="font-semibold">Use Profile Data</h3>
-                <p className="text-xs text-muted-foreground mt-1">Populate from your saved Nexora profile</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {candidateData && (
-            <Card className="bg-green-50/50 border-green-200">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-green-800 flex items-center gap-2">
-                      <Check className="w-5 h-5" /> Extracted Successfully
-                    </h3>
-                    <p className="text-sm text-green-600 mt-1">Found {candidateData.skills?.length || 0} skills and {candidateData.work_experience?.length || 0} roles.</p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={saveExtractedToProfile} disabled={updateProfileMutation.isPending}>
-                    {updateProfileMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                    Save Info to DB
-                  </Button>
-                </div>
-                
-                <div className="space-y-4">
-                  <div>
-                    <Label>Target Interview Role</Label>
-                    <Input value={targetRole} onChange={(e) => setTargetRole(e.target.value)} placeholder="e.g. Frontend Developer" className="mt-1" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {step === "domain" && (
-        <div>
-          <h2 className="text-xl font-semibold mb-2">Select Interview Domain</h2>
-          {domainsLoading ? (
-            <div className="grid md:grid-cols-2 gap-4">
-              {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-32" />)}
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 gap-4">
-              {domains?.map((domain) => {
-                const IconComponent = getIconComponent(domain);
-                const isSelected = selectedDomain?.id === domain.id;
-                return (
-                  <Card
-                    key={domain.id}
-                    className={`cursor-pointer transition-all ${isSelected ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
-                    onClick={() => setSelectedDomain(domain)}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start gap-4">
-                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${isSelected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"}`}>
-                          <IconComponent className="w-6 h-6" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-semibold mb-1">{domain.name}</h3>
-                          <p className="text-sm text-muted-foreground">{domain.description}</p>
-                        </div>
-                        {isSelected && <Check className="w-5 h-5 text-primary" />}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {step === "difficulty" && (
-        <div>
-          <h2 className="text-xl font-semibold mb-2">Select Difficulty Level</h2>
-          <RadioGroup value={selectedDifficulty} onValueChange={setSelectedDifficulty} className="space-y-4">
-            {difficulties.map((difficulty) => (
-              <Card
-                key={difficulty.id}
-                className={`cursor-pointer transition-all ${selectedDifficulty === difficulty.id ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
-                onClick={() => setSelectedDifficulty(difficulty.id)}
-              >
-                <CardContent className="p-6 flex items-center gap-4">
-                  <RadioGroupItem value={difficulty.id} id={difficulty.id} />
-                  <div className="flex-1">
-                    <Label htmlFor={difficulty.id} className="font-semibold cursor-pointer">{difficulty.label}</Label>
-                    <p className="text-sm text-muted-foreground mt-1">{difficulty.description}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </RadioGroup>
-        </div>
-      )}
-
-      {step === "language" && (
-        <div>
-          <h2 className="text-xl font-semibold mb-2">Select Language</h2>
-          <div className="grid md:grid-cols-2 gap-4 mt-4">
-            {languages.map((lang) => (
-              <Card
-                key={lang.code}
-                className={`cursor-pointer transition-all ${selectedLanguage === lang.code ? "ring-2 ring-primary border-primary" : "hover:shadow-md"}`}
-                onClick={() => setSelectedLanguage(lang.code)}
-              >
-                <CardContent className="p-6 flex items-center gap-4">
-                  <span className="text-3xl">{lang.flag}</span>
-                  <div className="flex-1">
-                    <h3 className="font-semibold">{lang.name}</h3>
-                  </div>
-                  {selectedLanguage === lang.code && <Check className="w-5 h-5 text-primary" />}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {step === "confirm" && (
-        <div>
-          <h2 className="text-xl font-semibold mb-6">Confirm Your Settings</h2>
-          <Card className="mb-6">
-            <CardContent className="p-6 space-y-4">
-              <div className="flex justify-between border-b pb-4">
-                <span className="text-muted-foreground">Interview Mode</span>
-                <Badge>{interviewType === "cv" ? "With CV Context" : "Role Based"}</Badge>
-              </div>
-              <div className="flex justify-between border-b pb-4">
-                <span className="text-muted-foreground">Target Role</span>
-                <span className="font-semibold">
-                  {interviewType === "cv" ? targetRole : selectedDomain?.name}
-                </span>
-              </div>
-              <div className="flex justify-between border-b pb-4">
-                <span className="text-muted-foreground">Difficulty</span>
-                <span className="font-semibold capitalize">{selectedDifficulty}</span>
-              </div>
-              <div className="flex justify-between pb-2">
-                <span className="text-muted-foreground">Language</span>
-                <span className="font-semibold">
-                  {languages.find(l => l.code === selectedLanguage)?.name}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mt-8 pt-6 border-t flex-wrap">
-        <Button variant="outline" onClick={goBack} disabled={currentStepIndex === 0}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back
+      <div className="sticky bottom-0 -mx-4 mt-8 flex items-center justify-between gap-3 border-t bg-background/95 px-4 py-4 backdrop-blur sm:static sm:mx-0 sm:bg-transparent sm:px-0">
+        <Button variant="ghost" onClick={goBack} disabled={stepIndex === 0} className={cn(stepIndex === 0 && "invisible")}>
+          <ArrowLeft />
+          Back
         </Button>
         {step === "confirm" ? (
-          <Button onClick={() => createSessionMutation.mutate()} disabled={createSessionMutation.isPending}>
-            {createSessionMutation.isPending ? "Starting AI Engine..." : "Start Interview"}
-            <ArrowRight className="w-4 h-4 ml-2" />
+          <Button size="lg" onClick={() => startInterview.mutate()} disabled={startInterview.isPending} data-testid="button-start-interview">
+            {startInterview.isPending ? <Loader2 className="animate-spin" /> : null}
+            {startInterview.isPending ? "Preparing questions…" : "Start interview"}
           </Button>
         ) : (
-          <Button onClick={goNext} disabled={!canProceed()}>
-            Continue <ArrowRight className="w-4 h-4 ml-2" />
+          <Button size="lg" onClick={goNext} disabled={!canProceed} data-testid="button-continue">
+            Continue
+            <ArrowRight />
           </Button>
         )}
       </div>

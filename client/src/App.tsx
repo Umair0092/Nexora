@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, Link } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/useAuth";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { BrandMark } from "@/components/brand";
 import AuthPage from "@/pages/auth";
 
 import NotFound from "@/pages/not-found";
@@ -27,14 +28,25 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
       <div className="flex min-h-screen w-full">
         <AppSidebar />
-        <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center justify-between gap-4 p-3 border-b bg-background sticky top-0 z-40">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-40 flex h-14 print:hidden items-center justify-between gap-4 border-b bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-4">
+            <div className="flex items-center gap-2">
+              <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle navigation" />
+              <Link href="/dashboard" className="md:hidden" aria-label="Nexora home">
+                <BrandMark className="h-7 w-7" />
+              </Link>
+            </div>
             <ThemeToggle />
           </header>
-          <main className="flex-1 overflow-auto bg-background">
+          <main id="main" className="flex-1 bg-background">
             {children}
           </main>
         </div>
@@ -48,11 +60,9 @@ function Router() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-background" role="status">
+        <BrandMark className="h-10 w-10 animate-pulse" />
+        <span className="sr-only">Loading</span>
       </div>
     );
   }
@@ -60,9 +70,12 @@ function Router() {
   if (!isAuthenticated) {
     return (
       <Switch>
-        <Route path="/auth" component={AuthPage} />
         <Route path="/" component={Landing} />
-        <Route component={Landing} />
+        <Route path="/auth" component={AuthPage} />
+        {/* Deep links to app pages land on sign-in rather than silently on the landing page. */}
+        <Route>
+          <Redirect to="/auth" />
+        </Route>
       </Switch>
     );
   }

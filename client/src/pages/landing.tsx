@@ -1,419 +1,238 @@
+import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
-import {
-  Mic,
-  Video,
-  Brain,
-  Globe,
-  BarChart3,
-  CheckCircle,
-  ArrowRight,
-  Zap,
-  Target,
-  TrendingUp,
-  Users,
-  Star,
-  Code,
-  Briefcase,
-  DollarSign,
-  UserCheck,
-} from "lucide-react";
-import heroImage from "@assets/stock_images/professional_job_int_751b16c0.jpg";
+import { Brand } from "@/components/brand";
+import { ScoreDial } from "@/components/score-dial";
+import { FileText, Code, Layers, Users, Eye, Hand, ShieldCheck } from "lucide-react";
 
-const features = [
+// The hero cycles through the kind of questions Nexora actually asks: CV follow-ups first.
+const CUE_QUESTIONS = [
+  { n: 1, q: "Your CV says you cut API latency by 40%. Walk me through how you found the bottleneck." },
+  { n: 4, q: "What's the difference between a clustered and a non-clustered index?" },
+  { n: 7, q: "Tell me about a time a teammate disagreed with your design. What happened next?" },
+];
+
+const formats = [
   {
-    icon: Mic,
-    title: "Real-Time Voice Analysis",
-    description: "Multilingual speech-to-text in English, Urdu, French, and Spanish with intelligent answer detection.",
+    icon: FileText,
+    title: "CV interview",
+    body: "Upload your CV. The interviewer asks about your actual projects and follows up on what you say.",
+    length: "5 questions",
   },
   {
-    icon: Video,
-    title: "Non-Verbal Feedback",
-    description: "Real-time webcam analysis monitors posture and gestures, providing instant visual feedback.",
+    icon: Code,
+    title: "Technical quiz",
+    body: "Questions from a real bank for Software Engineering, Data Science, SQL, DevOps or Cloud, marked against model answers.",
+    length: "5 questions",
   },
   {
-    icon: Brain,
-    title: "AI-Powered Evaluation",
-    description: "Semantic analysis by large language models provides context-aware assessment and personalized feedback.",
+    icon: Layers,
+    title: "Full interview",
+    body: "Five CV questions, then five technical ones. The closest thing to the real round.",
+    length: "10 questions",
+  },
+  {
+    icon: Users,
+    title: "Behavioral",
+    body: "Teamwork, conflict and ownership questions. Feedback checks whether your answers follow situation, task, action, result.",
+    length: "5 questions",
   },
 ];
 
-const howItWorks = [
-  {
-    step: 1,
-    title: "Select Your Domain",
-    description: "Choose from Software Engineering, Marketing, Finance, HR, and more.",
-  },
-  {
-    step: 2,
-    title: "Start Practice Session",
-    description: "Answer domain-specific questions while being recorded via webcam and microphone.",
-  },
-  {
-    step: 3,
-    title: "Receive Real-Time Feedback",
-    description: "Get instant visual indicators for posture and gestures during your session.",
-  },
-  {
-    step: 4,
-    title: "Review Performance Report",
-    description: "Access detailed scores, transcripts, and AI-generated improvement recommendations.",
-  },
-];
+function CueCard() {
+  const [index, setIndex] = useState(0);
 
-const domains = [
-  { icon: Code, name: "Software Engineering", description: "Technical interviews, coding challenges, system design" },
-  { icon: Briefcase, name: "Marketing", description: "Campaign strategies, brand positioning, analytics" },
-  { icon: DollarSign, name: "Finance", description: "Financial analysis, investment strategies, risk management" },
-  { icon: UserCheck, name: "Human Resources", description: "Behavioral questions, culture fit, leadership" },
-];
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = setInterval(() => setIndex((i) => (i + 1) % CUE_QUESTIONS.length), 6000);
+    return () => clearInterval(timer);
+  }, []);
 
-const testimonials = [
-  {
-    name: "Sarah Chen",
-    role: "Software Engineer at Google",
-    content: "Nexora helped me identify and fix nervous habits I didn't know I had. Landed my dream job!",
-    rating: 5,
-  },
-  {
-    name: "Michael Rodriguez",
-    role: "Marketing Manager",
-    content: "The multilingual support was a game-changer for my international career. Highly recommend!",
-    rating: 5,
-  },
-];
+  const cue = CUE_QUESTIONS[index];
 
-const stats = [
-  { value: "10,000+", label: "Interview-Ready Professionals" },
-  { value: "95%", label: "Success Rate" },
-  { value: "4", label: "Languages Supported" },
-  { value: "50+", label: "Domain Topics" },
-];
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-[hsl(224_48%_16%)] p-6 text-[hsl(216_33%_95%)] shadow-xl ring-1 ring-transparent dark:ring-[hsl(216_33%_95%/.1)] sm:p-10">
+      <div className="flex items-center justify-between gap-4 text-sm text-[hsl(216_33%_95%/.7)]">
+        <span className="flex items-center gap-3">
+          <span className="tally-light" aria-hidden="true" />
+          Recording your answer
+        </span>
+        <span className="tabular-nums">Question {cue.n} of 10</span>
+      </div>
+      <p key={cue.q} className="cue-card mt-8 min-h-[4.6em] text-[1.65rem] animate-in fade-in duration-700 sm:mt-10 sm:text-4xl" aria-live="polite">
+        "{cue.q}"
+      </p>
+      <dl className="mt-8 grid grid-cols-3 gap-4 border-t border-[hsl(216_33%_95%/.15)] pt-5 text-sm sm:mt-10">
+        <div>
+          <dt className="text-[hsl(216_33%_95%/.6)]">Eye contact</dt>
+          <dd className="mt-1 font-semibold">Steady</dd>
+        </div>
+        <div>
+          <dt className="text-[hsl(216_33%_95%/.6)]">Attention</dt>
+          <dd className="mt-1 font-semibold tabular-nums">86</dd>
+        </div>
+        <div>
+          <dt className="text-[hsl(216_33%_95%/.6)]">Hands</dt>
+          <dd className="mt-1 font-semibold">Calm</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
 
 export default function Landing() {
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary text-primary-foreground font-bold text-lg">
-              N
-            </div>
-            <span className="text-xl font-semibold">Nexora</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-6 flex-wrap">
-            <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors" data-testid="link-features">
-              Features
-            </a>
-            <a href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors" data-testid="link-how-it-works">
-              How It Works
-            </a>
-            <a href="#domains" className="text-sm text-muted-foreground hover:text-foreground transition-colors" data-testid="link-domains">
-              Domains
-            </a>
+      <header className="sticky top-0 z-50 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+          <Link href="/" aria-label="Nexora home">
+            <Brand />
+          </Link>
+          <nav className="hidden items-center gap-8 text-sm md:flex" aria-label="Sections">
+            <a href="#formats" className="text-muted-foreground transition-colors hover:text-foreground">Formats</a>
+            <a href="#report" className="text-muted-foreground transition-colors hover:text-foreground">The report</a>
+            <a href="#how" className="text-muted-foreground transition-colors hover:text-foreground">How it works</a>
           </nav>
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1 sm:gap-2">
             <ThemeToggle />
-            <a href="/auth" data-testid="button-login">
-              <Button>
-                Get Started
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </a>
+            <Button asChild variant="ghost" className="hidden sm:inline-flex" data-testid="button-login">
+              <Link href="/auth">Sign in</Link>
+            </Button>
+            <Button asChild data-testid="button-get-started">
+              <Link href="/auth?mode=register">Start practising</Link>
+            </Button>
           </div>
         </div>
       </header>
 
-      <section className="relative overflow-hidden">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${heroImage})` }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/40" />
-        <div className="relative mx-auto max-w-7xl px-6 py-24 md:py-32 lg:py-40">
-          <div className="max-w-2xl">
-            <Badge className="mb-6 text-sm" variant="secondary">
-              AI-Powered Interview Preparation
-            </Badge>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight">
-              Redefining Interview Readiness
+      <main>
+        <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:px-6 md:py-20 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14 lg:py-24">
+          <div>
+            <h1 className="text-[2.6rem] font-bold leading-[1.02] sm:text-6xl">
+              Rehearse the interview before it happens.
             </h1>
-            <p className="text-lg md:text-xl text-white/80 mb-8 leading-relaxed">
-              Practice domain-specific interviews with real-time verbal and non-verbal feedback.
-              Get AI-powered evaluation and personalized recommendations to ace your next interview.
+            <p className="mt-6 max-w-md text-lg text-muted-foreground">
+              Answer out loud to an AI interviewer that has read your CV. Afterwards you get a scored report on what you
+              said and how you came across on camera.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
-              <a href="/auth" data-testid="button-hero-cta">
-                <Button size="lg" className="text-base">
-                  Start Practicing Free
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </a>
-              <a href="#features" data-testid="button-learn-more">
-                <Button size="lg" variant="outline" className="text-base bg-white/10 backdrop-blur-sm text-white border-white/30">
-                  Learn More
-                </Button>
-              </a>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg" className="h-12 px-6 text-base" data-testid="button-hero-cta">
+                <Link href="/auth?mode=register">Start a free practice interview</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="h-12 px-6 text-base">
+                <a href="#report">See a sample report</a>
+              </Button>
             </div>
-            <div className="mt-12 flex items-center gap-6 flex-wrap">
-              <div className="flex -space-x-3">
-                {[1, 2, 3, 4].map((i) => (
-                  <div
-                    key={i}
-                    className="w-10 h-10 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center text-white text-sm font-medium"
-                  >
-                    {String.fromCharCode(64 + i)}
-                  </div>
-                ))}
-              </div>
-              <p className="text-white/80 text-sm">
-                Join <span className="font-semibold text-white">10,000+</span> interview-ready professionals
+            <p className="mt-5 text-sm text-muted-foreground">Answer in English, Urdu, French or Spanish.</p>
+          </div>
+          <CueCard />
+        </section>
+
+        <section id="formats" className="border-t bg-card">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
+            <div className="max-w-2xl">
+              <h2 className="text-3xl font-bold sm:text-4xl">Pick the round you're worried about</h2>
+              <p className="mt-4 text-muted-foreground">
+                Each format is a full spoken interview with camera on. You can pause between answers.
               </p>
             </div>
+            <ul className="mt-12 divide-y border-y">
+              {formats.map((f) => (
+                <li key={f.title} className="grid gap-3 py-6 sm:grid-cols-[2.75rem_14rem_1fr_auto] sm:items-baseline sm:gap-6">
+                  <f.icon className="h-6 w-6 text-primary sm:translate-y-1" aria-hidden="true" />
+                  <h3 className="text-xl font-semibold">{f.title}</h3>
+                  <p className="max-w-xl text-muted-foreground">{f.body}</p>
+                  <span className="text-sm text-muted-foreground sm:text-right">{f.length}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="py-16 border-b bg-muted/30">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {stats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-3xl md:text-4xl font-bold text-foreground" data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                  {stat.value}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="features" className="py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-16">
-            <Badge className="mb-4" variant="secondary">Features</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Everything You Need to Succeed</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Our comprehensive platform analyzes every aspect of your interview performance.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {features.map((feature) => (
-              <Card key={feature.title} className="p-6" data-testid={`card-feature-${feature.title.toLowerCase().replace(/\s+/g, '-')}`}>
-                <CardContent className="p-0">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                    <feature.icon className="w-6 h-6 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">{feature.title}</h3>
-                  <p className="text-muted-foreground">{feature.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-20 md:py-28 bg-muted/30">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid md:grid-cols-2 gap-12 lg:gap-20 items-center">
+        <section id="report" className="border-t">
+          <div className="mx-auto grid max-w-6xl gap-12 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-[1fr_1.15fr] lg:items-center">
             <div>
-              <Badge className="mb-4" variant="secondary">Multilingual Support</Badge>
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">Practice in Your Preferred Language</h2>
-              <p className="text-lg text-muted-foreground mb-8">
-                Our advanced speech-to-text technology supports English, Urdu, French, and Spanish,
-                enabling candidates from diverse backgrounds to practice effectively.
+              <h2 className="text-3xl font-bold sm:text-4xl">Feedback you can act on tomorrow</h2>
+              <p className="mt-4 max-w-md text-muted-foreground">
+                Every answer gets a score, what worked, and what to change. The camera adds what you can't hear
+                yourself: where you looked, when you drifted, and what your hands were doing.
               </p>
-              <div className="grid grid-cols-2 gap-4">
-                {["English", "Urdu", "French", "Spanish"].map((lang) => (
-                  <div key={lang} className="flex items-center gap-3 p-3 rounded-lg bg-background border">
-                    <Globe className="w-5 h-5 text-primary" />
-                    <span className="font-medium">{lang}</span>
-                  </div>
-                ))}
-              </div>
+              <ul className="mt-8 space-y-4 text-sm">
+                <li className="flex gap-3">
+                  <Eye className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                  <span>Attention tracked from gaze, head position and blink rate, second by second.</span>
+                </li>
+                <li className="flex gap-3">
+                  <Hand className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                  <span>Hand movement graded calm, moderate or excessive.</span>
+                </li>
+                <li className="flex gap-3">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                  <span>Video is analysed frame by frame and never saved. Only the scores are kept.</span>
+                </li>
+              </ul>
             </div>
-            <div className="relative">
-              <div className="aspect-square rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-                <div className="text-center p-8">
-                  <Globe className="w-24 h-24 text-primary mx-auto mb-4" />
-                  <p className="text-lg font-semibold">4 Languages</p>
-                  <p className="text-muted-foreground">Seamless transcription</p>
+
+            <figure className="rounded-2xl border bg-card p-5 shadow-lg sm:p-8" aria-label="Sample report excerpt">
+              <div className="flex flex-wrap items-center gap-6">
+                <ScoreDial score={78} size="md" label="Overall score" />
+                <div>
+                  <p className="font-display text-2xl font-semibold">Strong, with a few gaps</p>
+                  <p className="text-sm text-muted-foreground">Full interview for a Backend Engineer role</p>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="how-it-works" className="py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-16">
-            <Badge className="mb-4" variant="secondary">How It Works</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Simple 4-Step Process</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Get started in minutes and receive actionable feedback immediately.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {howItWorks.map((item) => (
-              <div key={item.step} className="relative" data-testid={`step-${item.step}`}>
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">
-                    {item.step}
+              <div className="mt-6 rounded-xl bg-muted/60 p-4 sm:p-5">
+                <p className="text-sm text-muted-foreground">Question 4</p>
+                <p className="mt-1 font-semibold">What's the difference between a clustered and a non-clustered index?</p>
+                <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+                  <div>
+                    <p className="font-semibold text-success">What worked</p>
+                    <p className="mt-1 text-muted-foreground">Correct definition, and you tied it to a query you'd tuned.</p>
                   </div>
-                  {item.step < 4 && (
-                    <div className="hidden lg:block flex-1 h-0.5 bg-border" />
-                  )}
+                  <div>
+                    <p className="font-semibold text-warning">Change next time</p>
+                    <p className="mt-1 text-muted-foreground">Mention the write cost of extra indexes before you're asked.</p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
-                <p className="text-muted-foreground text-sm">{item.description}</p>
               </div>
-            ))}
+            </figure>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="domains" className="py-20 md:py-28 bg-muted/30">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-16">
-            <Badge className="mb-4" variant="secondary">Domain Coverage</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Industry-Specific Practice</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Prepare for interviews in your specific field with curated question banks.
-            </p>
+        <section id="how" className="border-t bg-card">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 md:py-24">
+            <h2 className="text-3xl font-bold sm:text-4xl">How a session works</h2>
+            <ol className="mt-12 grid gap-10 md:grid-cols-3">
+              {[
+                ["Choose a format", "Upload your CV or pick a technical track, then choose your answer language."],
+                ["Answer out loud", "Each question is read aloud. Answer like it's real, then move to the next one when you're done."],
+                ["Read your report", "Scores, per-question feedback and your camera summary are saved to your history."],
+              ].map(([title, body], i) => (
+                <li key={title}>
+                  <span className="font-display text-5xl font-bold text-primary/30" aria-hidden="true">{i + 1}</span>
+                  <h3 className="mt-3 text-xl font-semibold">{title}</h3>
+                  <p className="mt-2 text-muted-foreground">{body}</p>
+                </li>
+              ))}
+            </ol>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {domains.map((domain) => (
-              <Card key={domain.name} className="p-6 hover-elevate cursor-pointer" data-testid={`card-domain-${domain.name.toLowerCase().replace(/\s+/g, '-')}`}>
-                <CardContent className="p-0">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                    <domain.icon className="w-6 h-6 text-primary" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2">{domain.name}</h3>
-                  <p className="text-sm text-muted-foreground">{domain.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-16">
-            <Badge className="mb-4" variant="secondary">Analytics</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Comprehensive Performance Insights</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Track your progress with detailed analytics and actionable recommendations.
-            </p>
+        <section className="border-t">
+          <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-16 sm:px-6 md:flex-row md:items-center md:justify-between md:py-20">
+            <h2 className="max-w-xl text-3xl font-bold sm:text-4xl">Your next interview is a rehearsal away.</h2>
+            <Button asChild size="lg" className="h-12 px-6 text-base" data-testid="button-cta-final">
+              <Link href="/auth?mode=register">Create a free account</Link>
+            </Button>
           </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            <Card className="p-6">
-              <CardContent className="p-0">
-                <BarChart3 className="w-10 h-10 text-primary mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Question-by-Question Scores</h3>
-                <p className="text-sm text-muted-foreground">
-                  Detailed breakdown of your performance on each question with AI-generated feedback.
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="p-6">
-              <CardContent className="p-0">
-                <Target className="w-10 h-10 text-primary mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Strengths & Weaknesses</h3>
-                <p className="text-sm text-muted-foreground">
-                  Identify what you're doing well and where you need improvement.
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="p-6">
-              <CardContent className="p-0">
-                <TrendingUp className="w-10 h-10 text-primary mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Personalized Recommendations</h3>
-                <p className="text-sm text-muted-foreground">
-                  Actionable tips tailored to your unique performance patterns.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      <section className="py-20 md:py-28 bg-muted/30">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-16">
-            <Badge className="mb-4" variant="secondary">Testimonials</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">What Our Users Say</h2>
-          </div>
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            {testimonials.map((testimonial) => (
-              <Card key={testimonial.name} className="p-6" data-testid={`testimonial-${testimonial.name.toLowerCase().replace(/\s+/g, '-')}`}>
-                <CardContent className="p-0">
-                  <div className="flex gap-1 mb-4">
-                    {Array.from({ length: testimonial.rating }).map((_, i) => (
-                      <Star key={i} className="w-5 h-5 fill-yellow-400 text-yellow-400" />
-                    ))}
-                  </div>
-                  <p className="text-foreground mb-6">"{testimonial.content}"</p>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                      {testimonial.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm">{testimonial.name}</p>
-                      <p className="text-xs text-muted-foreground">{testimonial.role}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-20 md:py-28">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="relative overflow-hidden rounded-2xl bg-primary p-12 md:p-16 text-center">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/80" />
-            <div className="relative">
-              <h2 className="text-3xl md:text-4xl font-bold text-primary-foreground mb-4">
-                Ready to Ace Your Next Interview?
-              </h2>
-              <p className="text-lg text-primary-foreground/80 mb-8 max-w-2xl mx-auto">
-                Join thousands of professionals who have improved their interview skills with Nexora.
-              </p>
-              <a href="/auth" data-testid="button-cta-final">
-                <Button size="lg" variant="secondary" className="text-base">
-                  Get Started Free
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <footer className="border-t py-12">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-primary-foreground font-bold">
-                N
-              </div>
-              <span className="text-lg font-semibold">Nexora</span>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} Nexora. All rights reserved.
-            </p>
-            <div className="flex items-center gap-6">
-              <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</a>
-              <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</a>
-              <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Contact</a>
-            </div>
-          </div>
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <Brand className="text-foreground" />
+          <p>© {new Date().getFullYear()} Nexora. Built as a final-year project.</p>
         </div>
       </footer>
     </div>

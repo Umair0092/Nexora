@@ -22,10 +22,13 @@ Rails.application.configure do
   config.active_storage.service = :local
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  config.assume_ssl = true
+  # Rails sits behind the Nexora gateway; TLS (and HSTS) belong at the public edge.
+  # Set RAILS_FORCE_SSL=true only when Rails itself is served over HTTPS, otherwise the
+  # HSTS header pins every http://localhost site in the browser to HTTPS.
+  config.assume_ssl = ENV["RAILS_FORCE_SSL"] == "true"
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  config.force_ssl = true
+  config.force_ssl = ENV["RAILS_FORCE_SSL"] == "true"
 
   # Skip http-to-https redirect for the default health check endpoint.
   # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }

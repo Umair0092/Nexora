@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2025_12_11_133159) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_26_100003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -34,9 +34,11 @@ ActiveRecord::Schema[8.1].define(version: 2025_12_11_133159) do
     t.datetime "created_at", null: false
     t.text "description"
     t.string "icon"
+    t.boolean "internal", default: false, null: false
     t.string "name"
     t.integer "question_count"
     t.datetime "updated_at", null: false
+    t.index ["internal"], name: "index_domains_on_internal"
   end
 
   create_table "interview_sessions", force: :cascade do |t|
@@ -45,10 +47,12 @@ ActiveRecord::Schema[8.1].define(version: 2025_12_11_133159) do
     t.datetime "created_at", null: false
     t.string "difficulty"
     t.bigint "domain_id", null: false
+    t.string "interview_type"
     t.string "language"
     t.float "overall_score"
     t.datetime "started_at"
     t.string "status"
+    t.string "title"
     t.integer "total_questions"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
@@ -94,7 +98,7 @@ ActiveRecord::Schema[8.1].define(version: 2025_12_11_133159) do
     t.string "resume_url"
     t.text "skills", default: [], array: true
     t.datetime "updated_at", null: false
-    t.index ["email"], name: "index_users_on_email"
+    t.index "lower((email)::text)", name: "index_users_on_lower_email", unique: true
   end
 
   add_foreign_key "answers", "interview_sessions", column: "session_id"
