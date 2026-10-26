@@ -11,16 +11,17 @@ Endpoints:
   DELETE /api/v1/interviews/{session_id}
 """
 
+import io
 import os
 import uuid
 import asyncio
+import logging
 import tempfile
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Literal
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, UploadFile, File, Form, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from dotenv import load_dotenv
@@ -29,30 +30,31 @@ from pathlib import Path
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ─── Import project modules ──────────────────────────────────────────────────
-from helper import pdf_to_structure, Candidate, WorkExperience, Education
+from helper import pdf_to_structure, Candidate, WorkExperience, Education, NO_TEXT_ERROR
 from session import Interview, EvaluationResult, QuestionEvaluation
 
 # ─── In-memory session store ─────────────────────────────────────────────────
-# { session_id: { "interview": Interview, "last_accessed": datetime } }
+# { session_id: { "interview": Interview, "owner": str | None,
+#                  "created_at": datetime, "last_accessed": datetime } }
+# `owner` is the trusted X-User-Id header injected by the gateway.
 SESSION_STORE: dict = {}
 SESSION_TTL_MINUTES = int(os.getenv("RESUME_SESSION_TTL_MINUTES", 60))
 MAX_FILE_SIZE_MB = int(os.getenv("RESUME_MAX_FILE_SIZE_MB", 10))
+MAX_AUDIO_MB = int(os.getenv("RESUME_MAX_AUDIO_MB", 15))
+# Max concurrently active interview sessions per owner (X-User-Id). Creating
+# one more evicts that owner's oldest session.
+MAX_SESSIONS_PER_OWNER = int(os.getenv("RESUME_MAX_SESSIONS_PER_OWNER", 5))
 
-VALID_ROLES = [
-    "Data Scientist",
-    "ML Engineer",
-    "Data Analyst",
-    "AI Engineer",
-    "Software Engineer",
-    "Behavioral Interview",
-]
+ALLOWED_AUDIO_SUFFIXES = {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".mp4"}
+DEFAULT_TARGET_ROLE = "Software Engineer"
 
+logger = logging.getLogger("resumeaiservice.api")
 
 # ─── Background task: clean expired sessions ─────────────────────────────────
 async def cleanup_expired_sessions():
     while True:
         await asyncio.sleep(300)  # run every 5 minutes
-        cutoff = datetime.utcnow() - timedelta(minutes=SESSION_TTL_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=SESSION_TTL_MINUTES)
         expired = [sid for sid, data in SESSION_STORE.items() if data["last_accessed"] < cutoff]
         for sid in expired:
             SESSION_STORE.pop(sid, None)
@@ -103,14 +105,14 @@ class CandidateOut(BaseModel):
 
 class ParseResumeResponse(BaseModel):
     candidate_data: CandidateOut
-    target_role: str = Field(default="Data Scientist", description="Change to one of: Data Scientist, ML Engineer, Data Analyst, AI Engineer, Software Engineer")
+    target_role: str = Field(default="Software Engineer", description="The role to interview for (any free-form job title, e.g. 'Ruby on Rails Developer')")
     num_questions: int = Field(default=10, description="Change to your desired number of questions (5–15)")
     language: Literal["en", "ur", "fr", "es"] = Field(default="en", description="Interview language: 'en' English, 'ur' Urdu, 'fr' French, 'es' Spanish")
 
 
 class CreateInterviewRequest(BaseModel):
     candidate_data: CandidateOut
-    target_role: str = Field(default="Data Scientist", description="One of: Data Scientist, ML Engineer, Data Analyst, AI Engineer, Software Engineer")
+    target_role: str = Field(default="Software Engineer", description="The role to interview for (any free-form job title, e.g. 'Ruby on Rails Developer')")
     num_questions: int = Field(default=10, ge=5, le=15, description="Number of interview questions (5–15)")
     language: Literal["en", "ur", "fr", "es"] = Field(default="en", description="Interview language: 'en' English, 'ur' Urdu, 'fr' French, 'es' Spanish")
 
@@ -182,18 +184,56 @@ class EvaluationResponse(BaseModel):
     per_question: List[QuestionEvaluationOut]
 
 
-# ─── Helper ──────────────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def get_session(session_id: str) -> dict:
-    """Fetch a session or raise 404. Updates last_accessed timestamp."""
+def current_owner(x_user_id: Optional[str] = Header(None, alias="X-User-Id")) -> Optional[str]:
+    """
+    The caller's user id, as forwarded by the gateway after JWT verification.
+    The gateway strips any client-supplied X-User-Id, so this value is trusted.
+    Returns None when the header is absent (e.g. direct local calls).
+    """
+    return x_user_id.strip() if x_user_id and x_user_id.strip() else None
+
+
+def get_session(session_id: str, owner: Optional[str]) -> dict:
+    """
+    Fetch a session or raise 404. Updates last_accessed timestamp.
+
+    A session created with an owner is only visible to that same owner; any
+    other caller gets the same 404 as for a missing session.
+    """
     entry = SESSION_STORE.get(session_id)
-    if not entry:
+    if not entry or (entry.get("owner") and entry["owner"] != owner):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' not found. It may have expired (TTL: {SESSION_TTL_MINUTES} min)."
         )
-    entry["last_accessed"] = datetime.utcnow()
+    entry["last_accessed"] = datetime.now(timezone.utc)
     return entry
+
+
+def store_session(interview: "Interview", owner: Optional[str]) -> str:
+    """
+    Save a new session and return its id. If the owner already has
+    MAX_SESSIONS_PER_OWNER active sessions, their oldest ones are evicted.
+    """
+    if owner and MAX_SESSIONS_PER_OWNER > 0:
+        owned = sorted(
+            (sid for sid, d in SESSION_STORE.items() if d.get("owner") == owner),
+            key=lambda sid: SESSION_STORE[sid]["created_at"],
+        )
+        for sid in owned[: max(0, len(owned) - MAX_SESSIONS_PER_OWNER + 1)]:
+            SESSION_STORE.pop(sid, None)
+
+    now = datetime.now(timezone.utc)
+    session_id = str(uuid.uuid4())
+    SESSION_STORE[session_id] = {
+        "interview": interview,
+        "owner": owner,
+        "created_at": now,
+        "last_accessed": now,
+    }
+    return session_id
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -220,7 +260,6 @@ def health():
 
 
 from openai import AsyncOpenAI
-import os
 
 groq_api_key = os.getenv("GROQ_API_KEY")
 openai_client = AsyncOpenAI(api_key=groq_api_key, base_url="https://api.groq.com/openai/v1") if groq_api_key else None
@@ -231,34 +270,59 @@ openai_client = AsyncOpenAI(api_key=groq_api_key, base_url="https://api.groq.com
     summary="Transcribe audio using Whisper",
     tags=["Audio"],
 )
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    language: str = Form("en"),
+):
     """
     Takes an audio file (e.g., .webm from the browser) and transcribes it using Groq's Whisper API.
+    The `language` form field is an ISO-639-1 code (e.g. "en", "ur", "fr", "es") that pins
+    Whisper to that language. Without it, Whisper auto-detects and frequently confuses
+    Urdu (Arabic script) with Ukrainian (Cyrillic).
+
+    **Error responses:**
+    - `413` — Audio exceeds `RESUME_MAX_AUDIO_MB` (default 15 MB)
+    - `500` — Transcription not configured or failed
     """
     if not openai_client:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY is not configured in .env. Please add it to use Voice Transcription.")
 
+    # Read at most limit+1 bytes so an oversized upload is rejected without
+    # buffering all of it.
+    max_bytes = MAX_AUDIO_MB * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Audio too large. Maximum allowed size is {MAX_AUDIO_MB} MB."
+        )
+
+    # Only pass through known audio suffixes (Whisper infers the format from it)
     suffix = ".webm"
     if file.filename:
         _, ext = os.path.splitext(file.filename)
-        if ext:
-            suffix = ext
-            
+        if ext.lower() in ALLOWED_AUDIO_SUFFIXES:
+            suffix = ext.lower()
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
+
+    allowed_langs = {"en", "ur", "fr", "es"}
+    lang_code = language if language in allowed_langs else "en"
 
     try:
         with open(tmp_path, "rb") as audio_file:
             transcript = await openai_client.audio.transcriptions.create(
                 model="whisper-large-v3",
                 file=audio_file,
+                language=lang_code,
                 response_format="json"
             )
         return {"text": transcript.text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Whisper transcription failed: {str(e)}")
+    except Exception:
+        logger.exception("Whisper transcription failed")
+        raise HTTPException(status_code=500, detail="Transcription failed. Please try again.")
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -308,56 +372,57 @@ async def parse_resume(file: UploadFile = File(...)):
         ],
         "achievements": ["Dean's List 2022", "1st place university hackathon"]
       },
-      "target_role": "Data Scientist",
-      "num_questions": 10
+      "target_role": "Software Engineer",
+      "num_questions": 10,
+      "language": "en"
     }
     ```
 
-    Take this response, change `target_role` and `num_questions`, then POST it to `/api/v1/interviews`.
-
-    **Valid roles:** `Data Scientist`, `ML Engineer`, `Data Analyst`, `AI Engineer`, `Software Engineer`
+    Take this response, change `target_role` (any free-form job title) and
+    `num_questions`, then POST it to `/api/v1/interviews`.
 
     **Error responses:**
-    - `415` — File is not a PDF
-    - `413` — File exceeds 10 MB
-    - `400` — PDF could not be parsed
+    - `415` — File is not a PDF (checked via the `%PDF-` magic bytes)
+    - `413` — File exceeds `RESUME_MAX_FILE_SIZE_MB` (default 10 MB)
+    - `400` — PDF could not be parsed or has no readable text
     """
-    # Validate file type
-    if file.content_type not in ("application/pdf", "application/octet-stream") and \
-       not (file.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only PDF files are accepted."
-        )
-
-    # Read and check file size
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE_MB * 1024 * 1024:
+    # Read and check file size (read at most limit+1 bytes)
+    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large. Maximum allowed size is {MAX_FILE_SIZE_MB} MB."
         )
 
-    # Write to a temp file so pdf_to_structure can read it
+    # Validate file type by content, not by the client-supplied content-type
+    if not content.lstrip()[:5].startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only PDF files are accepted."
+        )
+
     try:
-        import io
-        file_like = io.BytesIO(content)
-        candidate: Candidate = pdf_to_structure(file_like)
+        candidate: Candidate = pdf_to_structure(io.BytesIO(content))
     except ValueError as e:
+        logger.warning("Resume parsing failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse resume. Make sure the file is a valid PDF with readable text. ({str(e)})"
+            detail=str(e) if str(e) == NO_TEXT_ERROR else
+                   "Failed to parse resume. Make sure the file is a valid PDF with readable text."
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Unexpected error during resume parsing")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error during resume parsing: {str(e)}"
+            detail="Unexpected error during resume parsing. Please try again."
         )
 
     return {
         "candidate_data": candidate.model_dump(),
-        "target_role": "Data Scientist",
+        "target_role": DEFAULT_TARGET_ROLE,
         "num_questions": 10,
+        "language": "en",
     }
 
 
@@ -368,7 +433,7 @@ async def parse_resume(file: UploadFile = File(...)):
     summary="Start a new interview session",
     tags=["Interview"],
 )
-def create_interview(body: CreateInterviewRequest):
+def create_interview(body: CreateInterviewRequest, owner: Optional[str] = Depends(current_owner)):
     """
     Create a new interview session. Returns a `session_id` and the first question.
 
@@ -404,14 +469,16 @@ def create_interview(body: CreateInterviewRequest):
     ```
 
     **Error responses:**
-    - `400` — Invalid target_role
+    - `400` — Empty target_role
     - `500` — AI service unavailable or quota exhausted
     """
-    if body.target_role not in VALID_ROLES:
+    target_role = (body.target_role or "").strip()
+    if not target_role:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid target_role '{body.target_role}'. Must be one of: {', '.join(VALID_ROLES)}"
+            detail="target_role must be a non-empty string"
         )
+    body.target_role = target_role
 
     # Convert CandidateOut (Pydantic) to a Candidate-like object session.py expects
     # session.py calls .model_dump() on candidate_data — CandidateOut supports that
@@ -428,17 +495,14 @@ def create_interview(body: CreateInterviewRequest):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(e)
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Failed to start interview")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start interview: {str(e)}"
+            detail="Failed to start interview. Please try again later."
         )
 
-    session_id = str(uuid.uuid4())
-    SESSION_STORE[session_id] = {
-        "interview": interview,
-        "last_accessed": datetime.utcnow(),
-    }
+    session_id = store_session(interview, owner)
 
     return {
         "session_id": session_id,
@@ -457,7 +521,7 @@ def create_interview(body: CreateInterviewRequest):
     summary="Submit an answer and get the next question",
     tags=["Interview"],
 )
-def submit_answer(session_id: str, body: AnswerRequest):
+def submit_answer(session_id: str, body: AnswerRequest, owner: Optional[str] = Depends(current_owner)):
     """
     Submit the candidate's answer and receive the next interview question.
 
@@ -493,7 +557,7 @@ def submit_answer(session_id: str, body: AnswerRequest):
     - `410` — Interview already complete
     - `503` — AI quota exhausted
     """
-    entry = get_session(session_id)
+    entry = get_session(session_id, owner)
     interview: Interview = entry["interview"]
 
     if interview.is_complete:
@@ -506,8 +570,12 @@ def submit_answer(session_id: str, body: AnswerRequest):
         next_question, is_complete = interview.process_answer_and_get_next_question(body.answer)
     except RuntimeError as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception:
+        logger.exception("Failed to process answer for interview %s", session_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process your answer. Please try again."
+        )
 
     return {
         "next_question": next_question,
@@ -524,7 +592,7 @@ def submit_answer(session_id: str, body: AnswerRequest):
     summary="Get the full interview transcript",
     tags=["Interview"],
 )
-def get_transcript(session_id: str):
+def get_transcript(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
     Returns the complete conversation history for a session.
 
@@ -548,7 +616,7 @@ def get_transcript(session_id: str):
     **Error responses:**
     - `404` — Session not found or expired
     """
-    entry = get_session(session_id)
+    entry = get_session(session_id, owner)
     interview: Interview = entry["interview"]
 
     return {
@@ -568,7 +636,7 @@ def get_transcript(session_id: str):
     summary="End and clean up an interview session",
     tags=["Interview"],
 )
-def delete_session(session_id: str):
+def delete_session(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
     Manually remove a session from memory. Call this when the user is done.
 
@@ -577,13 +645,9 @@ def delete_session(session_id: str):
     **Error responses:**
     - `404` — Session not found
     """
-    if session_id not in SESSION_STORE:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session '{session_id}' not found."
-        )
-    SESSION_STORE.pop(session_id)
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+    get_session(session_id, owner)
+    SESSION_STORE.pop(session_id, None)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get(
@@ -593,7 +657,7 @@ def delete_session(session_id: str):
     summary="Evaluate all interview answers",
     tags=["Interview"],
 )
-def evaluate_interview(session_id: str):
+def evaluate_interview(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
     Send the full interview transcript to Gemini and receive a structured evaluation
     with per-question scores and an overall performance summary.
@@ -639,7 +703,7 @@ def evaluate_interview(session_id: str):
     - `400` — No answers submitted yet
     - `503` — LLM unavailable
     """
-    entry = get_session(session_id)
+    entry = get_session(session_id, owner)
     interview: Interview = entry["interview"]
 
     if interview.questions_asked == 0:
@@ -654,8 +718,12 @@ def evaluate_interview(session_id: str):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception:
+        logger.exception("Unexpected error evaluating interview %s", session_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Evaluation failed due to an internal error. Please try again later."
+        )
 
     return {
         "session_id": session_id,

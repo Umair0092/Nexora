@@ -1,6 +1,6 @@
 import os
 import json
-import unicodedata
+import logging
 import pandas as pd
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -9,6 +9,8 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+logger = logging.getLogger("interview_feedback.session")
 
 # ─── Evaluation schemas ───────────────────────────────────────────────────────
 
@@ -43,7 +45,13 @@ DIFFICULTY_WEIGHTS = {
 
 
 def _select_questions(df: pd.DataFrame, role: str, num_questions: int, difficulty: str) -> pd.DataFrame:
-    """Filter and select questions with a weighted difficulty mix."""
+    """
+    Filter and select questions with a weighted difficulty mix.
+
+    Sampling is deliberately unseeded so every session gets a fresh selection
+    and ordering. The result may contain fewer than `num_questions` rows when
+    the category pool is small.
+    """
     cat_df = df[df["Category"].str.strip() == role].copy()
     if cat_df.empty:
         raise ValueError(f"No questions found for role: '{role}'")
@@ -60,43 +68,80 @@ def _select_questions(df: pd.DataFrame, role: str, num_questions: int, difficult
     for lvl, pool in pools.items():
         n = min(target[lvl], len(pool))
         if n > 0:
-            selected.append(pool.sample(n=n, random_state=42))
+            selected.append(pool.sample(n=n))
 
     if not selected:
         raise ValueError(f"No questions available for role '{role}' at difficulty '{difficulty}'")
 
     result = pd.concat(selected).drop_duplicates(subset=["ID"])
 
-    if len(result) < num_questions and len(cat_df) >= num_questions:
+    if len(result) < num_questions:
         extra_pool = cat_df[~cat_df["ID"].isin(result["ID"])]
         need = num_questions - len(result)
-        extra = extra_pool.sample(n=min(need, len(extra_pool)), random_state=99)
+        extra = extra_pool.sample(n=min(need, len(extra_pool)))
         result = pd.concat([result, extra]).drop_duplicates(subset=["ID"])
     elif len(result) > num_questions:
-        result = result.sample(n=num_questions, random_state=7)
+        result = result.sample(n=num_questions)
 
-    return result.sample(frac=1, random_state=5).reset_index(drop=True)
+    return result.sample(frac=1).reset_index(drop=True)
 
 
 # ─── Quiz session ─────────────────────────────────────────────────────────────
 
-SUPPORTED_LANGUAGES = {"en", "ur"}
+SUPPORTED_LANGUAGES = {"en", "ur", "fr", "es"}
 
 LANGUAGE_NAMES = {
     "en": "English",
     "ur": "Urdu",
+    "fr": "French",
+    "es": "Spanish",
 }
 
 
+def _clamp_score(value, low: int = 1, high: int = 10) -> int:
+    """
+    Coerce an LLM-produced score into the [low, high] range.
+
+    Examples:
+        _clamp_score(0)    -> 1
+        _clamp_score(12)   -> 10
+        _clamp_score("7")  -> 7
+        _clamp_score(None) -> 1
+    """
+    try:
+        n = int(round(float(value)))
+    except (TypeError, ValueError):
+        return low
+    return max(low, min(high, n))
+
+
+def _new_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        model=os.getenv("FEEDBACK_GEMINI_MODEL", "google/gemini-2.0-flash-001"),
+        api_key=os.getenv("FEEDBACK_OPENROUTER_API_KEY"),
+        base_url=os.getenv("FEEDBACK_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+    )
+
+
 class QuizSession:
+    """
+    One candidate's quiz run.
+
+    Progress is tracked with a single counter, `answered`:
+      - the current (unanswered) question is `_questions[answered]`
+      - the Nth call to submit_answer() stores its answer against question N
+      - the quiz is complete once `answered == num_questions`
+
+    `questions_asked` is a derived, read-only view kept for API compatibility:
+    the number of questions shown to the candidate so far, including the
+    current one (1 right after creation, `num_questions` at the last one).
+    """
 
     def __init__(self, df: pd.DataFrame, role: str, num_questions: int, difficulty: str, language: str = "en"):
         self.target_role = role
-        self.num_questions = num_questions
         self.difficulty = difficulty
         self.language = language if language in SUPPORTED_LANGUAGES else "en"
-        self.questions_asked = 0
-        self.is_complete = False
+        self.answered = 0
 
         questions_df = _select_questions(df, role, num_questions, difficulty)
         # Build internal list of {question, ideal_answer}
@@ -104,6 +149,8 @@ class QuizSession:
             {"question": row["Question"], "ideal_answer": row["Answer"]}
             for _, row in questions_df.iterrows()
         ]
+        # Report the real count — the pool may hold fewer than requested.
+        self.num_questions = len(self._questions)
         # Stores candidate answers as they come in
         self._answers: List[Optional[str]] = [None] * len(self._questions)
 
@@ -112,21 +159,34 @@ class QuizSession:
         if self.language != "en":
             self._translate_all_questions()
 
-    # ── Public helpers ────────────────────────────────────────────────────────
+    # ── Progress ──────────────────────────────────────────────────────────────
+
+    @property
+    def is_complete(self) -> bool:
+        return self.answered >= len(self._questions)
+
+    @property
+    def questions_asked(self) -> int:
+        """Questions shown so far, including the current unanswered one."""
+        return min(self.answered + 1, len(self._questions))
 
     @property
     def current_question(self) -> Optional[str]:
-        """The question the candidate should answer right now."""
-        idx = self.questions_asked  # 0-based index of current unanswered question
-        if idx >= len(self._questions):
+        """The (English) question the candidate should answer right now, or None when complete."""
+        if self.is_complete:
             return None
-        return self._questions[idx]["question"]
+        return self._questions[self.answered]["question"]
+
+    # ── Translation ───────────────────────────────────────────────────────────
 
     def _translate_all_questions(self) -> None:
         """
         Pre-translate every question in one LLM call at session creation time.
         Uses a JSON array response to guarantee index alignment.
         Populates self._translation_cache so get_translated_question() is instant.
+
+        Never raises: if the LLM call or JSON parsing fails, the cache stays
+        empty and questions are served in English.
         """
         if self.language == "en":
             return
@@ -142,22 +202,32 @@ class QuizSession:
             f"{input_json}"
         )
 
-        llm = ChatOpenAI(
-            model=os.getenv("FEEDBACK_GEMINI_MODEL", "google/gemini-2.0-flash-001"),
-            api_key=os.getenv("FEEDBACK_OPENROUTER_API_KEY"),
-            base_url=os.getenv("FEEDBACK_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-        )
-        response = llm.invoke(prompt)
-        raw = response.content.strip() if hasattr(response, "content") else str(response).strip()
+        try:
+            response = _new_llm().invoke(prompt)
+            raw = response.content.strip() if hasattr(response, "content") else str(response).strip()
 
-        # Strip markdown code fences if the LLM wrapped the JSON
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
+            # Strip markdown code fences if the LLM wrapped the JSON
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
 
-        translated_list: list = json.loads(raw)
+            translated_list = json.loads(raw)
+            if not isinstance(translated_list, list):
+                raise ValueError("translation response is not a JSON array")
+        except Exception as e:
+            logger.warning(
+                "Question translation to %s failed; falling back to English: %s",
+                lang_name, e,
+            )
+            return
+
+        if len(translated_list) != len(questions):
+            logger.warning(
+                "Translation returned %d items for %d questions; unmatched ones stay in English",
+                len(translated_list), len(questions),
+            )
 
         # Map each original question to its translation by index
         for orig, translated in zip(questions, translated_list):
@@ -168,57 +238,65 @@ class QuizSession:
         """
         Return the question in the session's language.
         English questions are returned as-is.
-        Translated questions come from the pre-populated cache.
+        Translated questions come from the pre-populated cache (English fallback).
         """
         if not question or self.language == "en":
             return question
         return self._translation_cache.get(question, question)
 
+    # ── Answers ───────────────────────────────────────────────────────────────
+
     def submit_answer(self, answer: str) -> tuple[Optional[str], bool]:
         """
         Record the answer for the current question and advance.
-        Returns (next_question_text | None, is_complete).
+        Returns (next_question_text | None, is_complete). The next question is
+        raw English — api.py calls get_translated_question().
         """
         if self.is_complete:
             return None, True
 
-        idx = self.questions_asked
-        if idx >= len(self._questions):
-            self.is_complete = True
-            return None, True
+        self._answers[self.answered] = answer.strip()
+        self.answered += 1
 
-        self._answers[idx] = answer.strip()
-        self.questions_asked += 1
+        return self.current_question, self.is_complete
 
-        if self.questions_asked >= len(self._questions):
-            self.is_complete = True
-            return None, True
-
-        return self._questions[self.questions_asked]["question"], False  # raw English — api.py calls get_translated_question()
-
-    def get_transcript(self) -> List[dict]:
-        """Return answered Q&A pairs so far, with questions in the session language."""
-        pairs = []
-        for i in range(self.questions_asked):
-            pairs.append({
-                "question":     self.get_translated_question(self._questions[i]["question"]),
+    def _answered_pairs(self) -> List[dict]:
+        """Raw (English) {question, ideal_answer, answer} for answered questions only."""
+        return [
+            {
+                "question":     self._questions[i]["question"],
                 "ideal_answer": self._questions[i]["ideal_answer"],
                 "answer":       self._answers[i] or "",
-            })
-        return pairs
+            }
+            for i in range(self.answered)
+        ]
+
+    def get_transcript(self, include_ideal: Optional[bool] = None) -> List[dict]:
+        """
+        Return answered Q&A pairs, with questions in the session language.
+
+        `ideal_answer` is only revealed once the quiz is complete (or when
+        `include_ideal=True` is passed explicitly); otherwise it is None so it
+        cannot leak while the candidate is still answering.
+        """
+        if include_ideal is None:
+            include_ideal = self.is_complete
+        return [
+            {
+                "question":     self.get_translated_question(p["question"]),
+                "answer":       p["answer"],
+                "ideal_answer": p["ideal_answer"] if include_ideal else None,
+            }
+            for p in self._answered_pairs()
+        ]
 
     # ── Evaluation ────────────────────────────────────────────────────────────
 
     def evaluate(self) -> EvaluationResult:
         # Use raw English questions for LLM evaluation (better technical accuracy)
-        # but keep translated versions to replace back into the result afterward
-        raw_transcript = []
-        for i in range(self.questions_asked):
-            raw_transcript.append({
-                "question":     self._questions[i]["question"],
-                "ideal_answer": self._questions[i]["ideal_answer"],
-                "answer":       self._answers[i] or "",
-            })
+        # but keep translated versions to replace back into the result afterward.
+        # Only answered questions are evaluated.
+        raw_transcript = self._answered_pairs()
 
         if not raw_transcript:
             raise ValueError("No answers submitted yet.")
@@ -264,24 +342,34 @@ Scoring criteria per answer:
 - Use of specific examples and outcomes
 """
 
-        eval_llm = ChatOpenAI(
-            model=os.getenv("FEEDBACK_GEMINI_MODEL", "google/gemini-2.0-flash-001"),
-            api_key=os.getenv("FEEDBACK_OPENROUTER_API_KEY"),
-            base_url=os.getenv("FEEDBACK_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-        ).with_structured_output(EvaluationResult)
+        eval_llm = _new_llm().with_structured_output(EvaluationResult)
 
         try:
             result: EvaluationResult = eval_llm.invoke(prompt)
         except Exception as e:
+            logger.exception("Quiz evaluation LLM call failed")
             error_msg = str(e).lower()
             if any(k in error_msg for k in ["quota", "resource", "rate", "429"]):
                 raise RuntimeError("API quota exhausted. Please try again later.")
-            raise RuntimeError(f"Evaluation failed: {str(e)}")
+            raise RuntimeError("Evaluation failed. Please try again later.")
 
-        # Replace English question text in per_question with the translated version
-        if self.language != "en":
-            for i, qe in enumerate(result.per_question):
-                if i < len(raw_transcript):
-                    qe.question = self.get_translated_question(raw_transcript[i]["question"])
+        return self._sanitize_result(result, raw_transcript)
 
+    def _sanitize_result(self, result: EvaluationResult, raw_transcript: List[dict]) -> EvaluationResult:
+        """
+        Make the LLM output trustworthy: keep one entry per answered question
+        (drop extras), restore the real question/answer/ideal_answer text
+        (translated question for non-English sessions), clamp scores to 1–10.
+        """
+        per_question = list(result.per_question)[: len(raw_transcript)]
+        for qe, t in zip(per_question, raw_transcript):
+            qe.question = self.get_translated_question(t["question"])
+            qe.answer = t["answer"]
+            qe.ideal_answer = t["ideal_answer"]
+            qe.score = _clamp_score(qe.score)
+        result.per_question = per_question
+
+        result.overall_score = _clamp_score(result.overall_score)
+        result.communication_score = _clamp_score(result.communication_score)
+        result.technical_score = _clamp_score(result.technical_score)
         return result

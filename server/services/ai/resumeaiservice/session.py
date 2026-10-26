@@ -1,7 +1,7 @@
 import os
 import json
 import time
-import unicodedata
+import logging
 from typing import List, Optional
 from dotenv import load_dotenv
 from pathlib import Path
@@ -10,6 +10,25 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from pydantic import BaseModel
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+logger = logging.getLogger("resumeaiservice.session")
+
+
+def _clamp_score(value, low: int = 1, high: int = 10) -> int:
+    """
+    Coerce an LLM-produced score into the [low, high] range.
+
+    Examples:
+        _clamp_score(0)    -> 1
+        _clamp_score(12)   -> 10
+        _clamp_score("7")  -> 7
+        _clamp_score(None) -> 1
+    """
+    try:
+        n = int(round(float(value)))
+    except (TypeError, ValueError):
+        return low
+    return max(low, min(high, n))
 
 
 # ─── Evaluation schemas ───────────────────────────────────────────────────────
@@ -37,32 +56,15 @@ class EvaluationResult(BaseModel):
     improvement_points: List[str]   # specific actionable bullet points
 
 
-# ─── Static Urdu strings (pre-translated, no LLM needed) ─────────────────────
-
-URDU_STATIC = {
-    "closing":        "آپ کا شکریہ! انٹرویو مکمل ہو گیا۔ آپ کو بہت نیک خواہشات!",
-    "no_answer":      "مجھے آپ کا جواب نہیں ملا۔ کیا آپ دوبارہ بتا سکتے ہیں؟",
-    "invalid_answer": "میں سمجھ نہیں سکا۔ آئیے اگلا سوال کرتے ہیں۔",
-    "fallback_questions": [
-        "آپ نے کسی مشکل پروجیکٹ پر کام کیا ہو — اس کے بارے میں بتائیں۔",
-        "آپ کا machine learning یا data analysis میں کیا تجربہ ہے؟",
-        "کوئی ایسا وقت بتائیں جب آپ کو جلدی سے کوئی نئی technology سیکھنی پڑی۔",
-        "اس role میں آپ کو سب سے زیادہ کیا دلچسپ لگتا ہے؟",
-        "آپ کسی مسئلے کو کیسے حل کرتے ہیں — اپنا طریقہ بتائیں۔",
-        "کوئی ایسا وقت بتائیں جب آپ نے team کے ساتھ مل کر مشکل مسئلہ حل کیا۔",
-        "آپ کی سب سے مضبوط technical skills کیا ہیں؟",
-        "کوئی ایسی صورتحال بتائیں جب آپ کو ایک ساتھ کئی کام سنبھالنے پڑے۔",
-    ],
-}
-
-
 class Interview:
 
-    def __init__(self, candidate_data, target_role='Data Scientist', num_questions=10, language='en'):
+    def __init__(self, candidate_data, target_role='Software Engineer', num_questions=10, language='en'):
         self.candidate_data = candidate_data
         self.target_role = target_role
         self.num_questions = num_questions
-        self.language = language if language in ("en", "ur") else "en"
+        # Questions are always asked in English. `language` only governs the
+        # candidate's answer transcription language and the evaluation language.
+        self.language = language if language in ("en", "ur", "fr", "es") else "en"
         self.conversation_history = []
         self.questions_asked = 0
         self.api_call_times = []
@@ -123,42 +125,6 @@ OUTPUT FORMAT:
 - Do NOT use bullet points, numbered lists, or line breaks within a single question
 """
 
-    # ─── Translation ──────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _fix_rtl(text: str) -> str:
-        """Normalize Unicode and wrap with RTL control characters for correct display."""
-        # Remove any accidental LTR marks the LLM may have inserted
-        text = text.replace("\u200E", "")
-        # NFC normalization preserves Arabic/Urdu characters correctly
-        text = unicodedata.normalize("NFC", text)
-        # Wrap with RTL Embedding … Pop Directional Formatting
-        return f"\u202B\u200F{text}\u202C"
-
-    def _translate(self, text: str) -> str:
-        """Translate English text to Urdu. Returns original text on any failure."""
-        if not text or self.language == "en":
-            return text
-        try:
-            prompt = (
-                "Translate the following interview question or statement into natural, "
-                "conversational Urdu (اردو script only — no Roman Urdu). "
-                "Keep technical terms like 'machine learning', 'API', 'framework' in English. "
-                "Write it as ONE flowing sentence or two short sentences joined naturally — no line breaks. "
-                "Address the candidate as آپ only — never use صاحب, صاحبہ, جی, or any title. "
-                "Return ONLY the translated text on a single line, nothing else.\n\n"
-                f"{text}"
-            )
-            response = self.model.invoke([HumanMessage(content=prompt)])
-            translated = self._extract_text_from_response(response)
-            if translated and len(translated) > 3:
-                # Collapse any newlines the LLM inserted into spaces
-                translated = " ".join(translated.splitlines()).strip()
-                return self._fix_rtl(translated)
-            return text
-        except Exception:
-            return text
-
     # ─── Helpers ──────────────────────────────────────────────────────────────
 
     def _extract_text_from_response(self, response) -> str:
@@ -176,19 +142,16 @@ OUTPUT FORMAT:
         return str(response).strip()
 
     def _generate_fallback_question(self) -> str:
-        if self.language == "ur":
-            questions = URDU_STATIC["fallback_questions"]
-        else:
-            questions = [
-                "Can you tell me about a challenging project you've worked on?",
-                "What's your experience with machine learning or data analysis?",
-                "Describe a time when you had to learn a new technology quickly.",
-                "What interests you most about this role?",
-                "Can you walk me through your problem-solving approach?",
-                "Tell me about a time you worked in a team to solve a difficult problem.",
-                "What are your strongest technical skills?",
-                "Describe a situation where you had to handle conflicting priorities.",
-            ]
+        questions = [
+            "Can you tell me about a challenging project you've worked on?",
+            "What's your experience with machine learning or data analysis?",
+            "Describe a time when you had to learn a new technology quickly.",
+            "What interests you most about this role?",
+            "Can you walk me through your problem-solving approach?",
+            "Tell me about a time you worked in a team to solve a difficult problem.",
+            "What are your strongest technical skills?",
+            "Describe a situation where you had to handle conflicting priorities.",
+        ]
         index = min(self.questions_asked, len(questions) - 1)
         return questions[index]
 
@@ -215,17 +178,13 @@ OUTPUT FORMAT:
             if any(k in error_msg for k in ["quota", "resource", "rate", "429"]):
                 raise RuntimeError("API quota exhausted. Please try again later.")
             opening = f"Hello! Welcome to this {self.target_role} interview. Could you tell me about yourself?"
-            if self.language == "ur":
-                opening = self._translate(opening)
             self.conversation_history.append(AIMessage(content=opening))
             self.questions_asked = 1
             return opening
 
-        opening_en = " ".join(self._extract_text_from_response(response).splitlines()).strip()
-        if not opening_en or len(opening_en) < 10:
-            opening_en = f"Hello! Welcome to this {self.target_role} interview. Could you tell me about your background?"
-
-        opening = self._translate(opening_en) if self.language == "ur" else opening_en
+        opening = " ".join(self._extract_text_from_response(response).splitlines()).strip()
+        if not opening or len(opening) < 10:
+            opening = f"Hello! Welcome to this {self.target_role} interview. Could you tell me about your background?"
 
         self.conversation_history.append(AIMessage(content=opening))
         self.questions_asked = 1
@@ -233,14 +192,12 @@ OUTPUT FORMAT:
 
     def process_answer_and_get_next_question(self, user_answer: str):
         if not user_answer or not user_answer.strip():
-            return (self._fix_rtl(URDU_STATIC["no_answer"]) if self.language == "ur"
-                    else "I didn't receive your answer. Could you please share your thoughts?"), False
+            return "I didn't receive your answer. Could you please share your thoughts?", False
 
         self.conversation_history.append(HumanMessage(content=user_answer.strip()))
 
         if self.questions_asked >= self.num_questions:
-            closing = (self._fix_rtl(URDU_STATIC["closing"]) if self.language == "ur"
-                       else "Thank you for your time! That completes our interview. Best of luck!")
+            closing = "Thank you for your time! That completes our interview. Best of luck!"
             self.conversation_history.append(AIMessage(content=closing))
             self.is_complete = True
             return closing, True
@@ -271,14 +228,9 @@ You have asked {self.questions_asked} of {self.num_questions} questions. {self.n
             self.questions_asked += 1
             return fallback, False
 
-        next_question_en = " ".join(self._extract_text_from_response(response).splitlines()).strip()
-        if not next_question_en or len(next_question_en) < 10:
-            next_question_en = self._generate_fallback_question()
-            self.conversation_history.append(AIMessage(content=next_question_en))
-            self.questions_asked += 1
-            return next_question_en, False
-
-        next_question = self._translate(next_question_en) if self.language == "ur" else next_question_en
+        next_question = " ".join(self._extract_text_from_response(response).splitlines()).strip()
+        if not next_question or len(next_question) < 10:
+            next_question = self._generate_fallback_question()
 
         self.conversation_history.append(AIMessage(content=next_question))
         self.questions_asked += 1
@@ -319,7 +271,7 @@ You have asked {self.questions_asked} of {self.num_questions} questions. {self.n
             for idx, pair in enumerate(qa_pairs)
         )
 
-        lang_name = "Urdu" if self.language == "ur" else "English"
+        lang_name = {"ur": "Urdu", "fr": "French", "es": "Spanish"}.get(self.language, "English")
         prompt = f"""You are an expert technical interviewer evaluating a {self.target_role} interview.
 
 LANGUAGE INSTRUCTION:
@@ -362,9 +314,17 @@ Scoring criteria per answer:
         try:
             result: EvaluationResult = eval_llm.invoke(prompt)
         except Exception as e:
+            logger.exception("Interview evaluation LLM call failed")
             error_msg = str(e).lower()
             if any(k in error_msg for k in ["quota", "resource", "rate", "429"]):
                 raise RuntimeError("API quota exhausted. Please try again later.")
-            raise RuntimeError(f"Evaluation failed: {str(e)}")
+            raise RuntimeError("Evaluation failed. Please try again later.")
+
+        # Never trust the model's numeric output — keep every score in 1–10
+        for qe in result.per_question:
+            qe.score = _clamp_score(qe.score)
+        result.overall_score = _clamp_score(result.overall_score)
+        result.communication_score = _clamp_score(result.communication_score)
+        result.technical_score = _clamp_score(result.technical_score)
 
         return result
