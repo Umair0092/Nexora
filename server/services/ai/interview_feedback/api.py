@@ -12,11 +12,9 @@ Endpoints:
 """
 
 import os
-import uuid
 import asyncio
 import logging
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from contextlib import asynccontextmanager, contextmanager
 from typing import List, Optional, Literal
 
 import pandas as pd
@@ -27,11 +25,12 @@ from pathlib import Path
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from session import QuizSession, EvaluationResult, QuestionEvaluation
+from session import QuizSession
+from store import build_store, SessionNotFound
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-SESSION_TTL_MINUTES = int(os.getenv("FEEDBACK_SESSION_TTL_MINUTES", 60))
+SESSION_TTL_MINUTES = int(os.getenv("FEEDBACK_SESSION_TTL_MINUTES", 180))
 # Max concurrently active quiz sessions per owner (X-User-Id). Creating one
 # more evicts that owner's oldest session.
 MAX_SESSIONS_PER_OWNER = int(os.getenv("FEEDBACK_MAX_SESSIONS_PER_OWNER", 5))
@@ -54,10 +53,11 @@ DF: pd.DataFrame = _load_df()
 VALID_ROLES: List[str] = sorted(DF["Category"].unique().tolist())
 
 # ─── Session store ────────────────────────────────────────────────────────────
-# { session_id: { "quiz": QuizSession, "owner": str | None,
-#                  "created_at": datetime, "last_accessed": datetime } }
-# `owner` is the trusted X-User-Id header injected by the gateway.
-SESSION_STORE: dict = {}
+# Postgres when DATABASE_URL is set (survives restarts), in-memory otherwise.
+# Each session records its `owner`: the trusted X-User-Id header injected by the
+# gateway (or by Rails for server-to-server calls).
+STORE = build_store()
+KIND = "quiz"
 
 
 # ─── Background cleanup ───────────────────────────────────────────────────────
@@ -65,10 +65,10 @@ SESSION_STORE: dict = {}
 async def cleanup_expired_sessions():
     while True:
         await asyncio.sleep(300)
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=SESSION_TTL_MINUTES)
-        expired = [sid for sid, d in SESSION_STORE.items() if d["last_accessed"] < cutoff]
-        for sid in expired:
-            SESSION_STORE.pop(sid, None)
+        try:
+            await asyncio.to_thread(STORE.purge_expired, KIND, SESSION_TTL_MINUTES)
+        except Exception:
+            logger.exception("Expired session cleanup failed")
 
 
 @asynccontextmanager
@@ -121,8 +121,19 @@ class CreateQuizResponse(BaseModel):
     language: str
 
 
+class SpeechMetrics(BaseModel):
+    duration_seconds: float = Field(ge=0, le=3600)
+    word_count: int = Field(ge=0, le=20000)
+    words_per_minute: Optional[int] = Field(default=None, ge=0, le=1000)
+    filler_count: int = Field(ge=0, le=5000)
+    fillers: dict[str, int] = Field(default_factory=dict, max_length=20)
+    long_pauses: int = Field(ge=0, le=1000)
+    longest_pause_seconds: float = Field(ge=0, le=3600)
+
+
 class AnswerRequest(BaseModel):
-    answer: str = Field(..., min_length=1, description="Candidate's answer")
+    answer: str = Field(..., min_length=1, max_length=10000, description="Candidate's answer")
+    speech: Optional[SpeechMetrics] = Field(default=None, description="Delivery metrics from /transcribe for this answer")
 
 
 class AnswerResponse(BaseModel):
@@ -159,6 +170,7 @@ class QuestionEvaluationOut(BaseModel):
     strengths: List[str]
     improvements: List[str]
     feedback: str
+    speech: Optional[SpeechMetrics] = None
 
 
 class EvaluationResponse(BaseModel):
@@ -188,46 +200,29 @@ def current_owner(x_user_id: Optional[str] = Header(None, alias="X-User-Id")) ->
     return x_user_id.strip() if x_user_id and x_user_id.strip() else None
 
 
-def get_session(session_id: str, owner: Optional[str]) -> dict:
+def not_found(session_id: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Session '{session_id}' not found. It may have expired (TTL: {SESSION_TTL_MINUTES} min).",
+    )
+
+
+@contextmanager
+def open_quiz(session_id: str, owner: Optional[str]):
     """
-    Fetch a session or raise 404. Updates last_accessed timestamp.
+    Load a quiz for this owner, yield it, and save its state afterwards.
 
     A session created with an owner is only visible to that same owner; any
     other caller gets the same 404 as for a missing session so ids can't be
-    probed.
+    probed. Nothing is saved when the block raises.
     """
-    entry = SESSION_STORE.get(session_id)
-    if not entry or (entry.get("owner") and entry["owner"] != owner):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session '{session_id}' not found. It may have expired (TTL: {SESSION_TTL_MINUTES} min).",
-        )
-    entry["last_accessed"] = datetime.now(timezone.utc)
-    return entry
-
-
-def store_session(quiz: QuizSession, owner: Optional[str]) -> str:
-    """
-    Save a new session and return its id. If the owner already has
-    MAX_SESSIONS_PER_OWNER active sessions, their oldest ones are evicted.
-    """
-    if owner and MAX_SESSIONS_PER_OWNER > 0:
-        owned = sorted(
-            (sid for sid, d in SESSION_STORE.items() if d.get("owner") == owner),
-            key=lambda sid: SESSION_STORE[sid]["created_at"],
-        )
-        for sid in owned[: max(0, len(owned) - MAX_SESSIONS_PER_OWNER + 1)]:
-            SESSION_STORE.pop(sid, None)
-
-    now = datetime.now(timezone.utc)
-    session_id = str(uuid.uuid4())
-    SESSION_STORE[session_id] = {
-        "quiz": quiz,
-        "owner": owner,
-        "created_at": now,
-        "last_accessed": now,
-    }
-    return session_id
+    try:
+        with STORE.open(session_id, KIND, owner) as entry:
+            quiz = QuizSession.from_state(entry.state)
+            yield quiz
+            entry.state = quiz.to_state()
+    except SessionNotFound:
+        raise not_found(session_id)
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -242,7 +237,7 @@ def health():
     { "status": "ok", "active_sessions": 2 }
     ```
     """
-    return {"status": "ok", "active_sessions": len(SESSION_STORE)}
+    return {"status": "ok", "active_sessions": STORE.count(KIND)}
 
 
 @app.get(
@@ -334,7 +329,7 @@ def create_quiz(body: CreateQuizRequest, owner: Optional[str] = Depends(current_
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     first_question = quiz.get_translated_question(quiz.current_question)
-    session_id = store_session(quiz, owner)
+    session_id = STORE.create(KIND, owner, quiz.to_state(), MAX_SESSIONS_PER_OWNER)
 
     return {
         "session_id": session_id,
@@ -385,24 +380,22 @@ def submit_answer(session_id: str, body: AnswerRequest, owner: Optional[str] = D
     - `404` — Session not found or expired
     - `410` — Quiz already complete
     """
-    entry = get_session(session_id, owner)
-    quiz: QuizSession = entry["quiz"]
+    with open_quiz(session_id, owner) as quiz:
+        if quiz.is_complete:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="This quiz is already complete. Fetch evaluation via GET /api/v1/quiz/{session_id}/evaluate",
+            )
 
-    if quiz.is_complete:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="This quiz is already complete. Fetch evaluation via GET /api/v1/quiz/{session_id}/evaluate",
-        )
+        next_q, is_complete = quiz.submit_answer(body.answer, body.speech.model_dump() if body.speech else None)
+        translated_q = quiz.get_translated_question(next_q) if next_q else None
 
-    next_q, is_complete = quiz.submit_answer(body.answer)
-    translated_q = quiz.get_translated_question(next_q) if next_q else None
-
-    return {
-        "next_question": translated_q,
-        "questions_asked": quiz.questions_asked,
-        "num_questions": quiz.num_questions,
-        "is_complete": is_complete,
-    }
+        return {
+            "next_question": translated_q,
+            "questions_asked": quiz.questions_asked,
+            "num_questions": quiz.num_questions,
+            "is_complete": is_complete,
+        }
 
 
 @app.get(
@@ -441,21 +434,19 @@ def get_transcript(session_id: str, owner: Optional[str] = Depends(current_owner
     **Error responses:**
     - `404` — Session not found or expired
     """
-    entry = get_session(session_id, owner)
-    quiz: QuizSession = entry["quiz"]
-
-    return {
-        "session_id": session_id,
-        "target_role": quiz.target_role,
-        "difficulty": quiz.difficulty,
-        "language": quiz.language,
-        "questions_answered": quiz.answered,
-        "questions_asked": quiz.questions_asked,
-        "num_questions": quiz.num_questions,
-        "is_complete": quiz.is_complete,
-        "current_question": quiz.get_translated_question(quiz.current_question),
-        "transcript": quiz.get_transcript(),
-    }
+    with open_quiz(session_id, owner) as quiz:
+        return {
+            "session_id": session_id,
+            "target_role": quiz.target_role,
+            "difficulty": quiz.difficulty,
+            "language": quiz.language,
+            "questions_answered": quiz.answered,
+            "questions_asked": quiz.questions_asked,
+            "num_questions": quiz.num_questions,
+            "is_complete": quiz.is_complete,
+            "current_question": quiz.get_translated_question(quiz.current_question),
+            "transcript": quiz.get_transcript(),
+        }
 
 
 @app.get(
@@ -467,10 +458,12 @@ def get_transcript(session_id: str, owner: Optional[str] = Depends(current_owner
 )
 def evaluate_quiz(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
-    Send all answered Q&A pairs (with ideal answers) to Gemini and receive a
+    Send all answered Q&A pairs (with ideal answers) to the LLM and receive a
     structured evaluation with per-question scores and an overall summary.
 
-    Can be called mid-quiz or after completion.
+    Can be called mid-quiz or after completion. The result is cached until another
+    answer arrives. Each per_question entry carries the `speech` metrics sent with
+    that answer (or null). Rails calls this server-to-server when saving the report.
 
     **Example response `200 OK`:**
     ```json
@@ -505,44 +498,35 @@ def evaluate_quiz(session_id: str, owner: Optional[str] = Depends(current_owner)
     - `400` — No answers submitted yet
     - `503` — LLM unavailable or quota exhausted
     """
-    entry = get_session(session_id, owner)
-    quiz: QuizSession = entry["quiz"]
+    with open_quiz(session_id, owner) as quiz:
+        answered = quiz.answered
+        if answered == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No answers submitted yet. Answer at least one question before evaluating.",
+            )
 
-    answered = quiz.answered
-    if answered == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No answers submitted yet. Answer at least one question before evaluating.",
-        )
+        try:
+            result = quiz.evaluate()
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except RuntimeError as e:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+        except Exception:
+            logger.exception("Unexpected error evaluating quiz %s", session_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Evaluation failed due to an internal error. Please try again later.",
+            )
 
-    try:
-        result: EvaluationResult = quiz.evaluate()
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except Exception:
-        logger.exception("Unexpected error evaluating quiz %s", session_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Evaluation failed due to an internal error. Please try again later.",
-        )
-
-    return {
-        "session_id": session_id,
-        "target_role": quiz.target_role,
-        "language": quiz.language,
-        "questions_asked": answered,
-        "is_complete": quiz.is_complete,
-        "overall_score": result.overall_score,
-        "communication_score": result.communication_score,
-        "technical_score": result.technical_score,
-        "hire_recommendation": result.hire_recommendation,
-        "top_strengths": result.top_strengths,
-        "areas_to_improve": result.areas_to_improve,
-        "summary": result.summary,
-        "per_question": [q.model_dump() for q in result.per_question],
-    }
+        return {
+            **result,
+            "session_id": session_id,
+            "target_role": quiz.target_role,
+            "language": quiz.language,
+            "questions_asked": answered,
+            "is_complete": quiz.is_complete,
+        }
 
 
 @app.delete(
@@ -553,15 +537,15 @@ def evaluate_quiz(session_id: str, owner: Optional[str] = Depends(current_owner)
 )
 def delete_session(session_id: str, owner: Optional[str] = Depends(current_owner)):
     """
-    Manually remove a session from memory.
+    Remove a session. Called once the report has been saved.
 
     **Response `204 No Content`** — session deleted
 
     **Error responses:**
     - `404` — Session not found
     """
-    get_session(session_id, owner)
-    SESSION_STORE.pop(session_id, None)
+    if not STORE.delete(session_id, KIND, owner):
+        raise not_found(session_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

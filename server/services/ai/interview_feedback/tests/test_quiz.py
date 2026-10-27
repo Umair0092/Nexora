@@ -18,13 +18,15 @@ import pytest
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVICE_DIR))
-os.environ.setdefault("FEEDBACK_OPENROUTER_API_KEY", "test-key")
+os.environ.setdefault("GROQ_API_KEY", "test-key")
+os.environ["AI_SESSION_STORE"] = "memory"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 import api  # noqa: E402
 import session  # noqa: E402
 from session import EvaluationResult, QuestionEvaluation, QuizSession  # noqa: E402
+from store import MemoryStore  # noqa: E402
 
 ROLE = "SQL"
 OWNER = {"X-User-Id": "42"}
@@ -54,12 +56,14 @@ class FakeEvalLLM:
     def __init__(self, n_items):
         self.n_items = n_items
         self.prompt = None
+        self.calls = 0
 
     def with_structured_output(self, _schema):
         return self
 
     def invoke(self, prompt):
         self.prompt = prompt
+        self.calls += 1
         return EvaluationResult(
             per_question=[
                 QuestionEvaluation(
@@ -75,14 +79,13 @@ class FakeEvalLLM:
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    api.SESSION_STORE.clear()
+    monkeypatch.setattr(api, "STORE", MemoryStore())
 
     def _no_llm():
         raise AssertionError("LLM must not be called in this test")
 
     monkeypatch.setattr(session, "_new_llm", _no_llm)
     yield
-    api.SESSION_STORE.clear()
 
 
 @pytest.fixture
@@ -270,8 +273,8 @@ def test_question_selection_is_not_fixed(client):
     orderings = set()
     for _ in range(20):
         sid = _create(client, num_questions=5)["session_id"]
-        quiz = api.SESSION_STORE[sid]["quiz"]
-        orderings.add(tuple(q["question"] for q in quiz._questions))
+        with api.STORE.open(sid, api.KIND, OWNER["X-User-Id"]) as entry:
+            orderings.add(tuple(q["question"] for q in entry.state["questions"]))
     # With fixed seeds every session was identical; now they should vary.
     assert len(orderings) > 1
 
@@ -317,3 +320,56 @@ def test_evaluate_internal_error_is_generic(client, monkeypatch):
     r = client.get(f"/api/v1/quiz/{sid}/evaluate", headers=OWNER)
     assert r.status_code == 500
     assert "secret" not in r.text
+
+
+# ─── Persistence, speech and evaluation cache ─────────────────────────────────
+
+SPEECH = {
+    "duration_seconds": 30.0, "word_count": 70, "words_per_minute": 140, "filler_count": 2,
+    "fillers": {"um": 2}, "long_pauses": 0, "longest_pause_seconds": 1.2,
+}
+
+
+def test_state_round_trip_keeps_progress(client):
+    created = _create(client, num_questions=3)
+    sid = created["session_id"]
+    client.post(f"/api/v1/quiz/{sid}/answer", json={"answer": "one"}, headers=OWNER)
+
+    with api.STORE.open(sid, api.KIND, OWNER["X-User-Id"]) as entry:
+        state = entry.state
+    restored = QuizSession.from_state(json.loads(json.dumps(state)))
+    assert restored.answered == 1
+    assert restored.num_questions == 3
+    assert restored.get_transcript(include_ideal=True)[0]["answer"] == "one"
+    assert restored.to_state() == state
+
+
+def test_speech_metrics_are_kept_per_answer_and_cached_evaluation(client, monkeypatch):
+    sid = _create(client, num_questions=3)["session_id"]
+    client.post(f"/api/v1/quiz/{sid}/answer", json={"answer": "first", "speech": SPEECH}, headers=OWNER)
+    client.post(f"/api/v1/quiz/{sid}/answer", json={"answer": "second"}, headers=OWNER)
+
+    fake = FakeEvalLLM(n_items=2)
+    monkeypatch.setattr(session, "_new_llm", lambda: fake)
+    body = client.get(f"/api/v1/quiz/{sid}/evaluate", headers=OWNER).json()
+    assert body["per_question"][0]["speech"] == SPEECH
+    assert body["per_question"][1]["speech"] is None
+
+    # Same answers → cached; one more answer → evaluated again.
+    assert client.get(f"/api/v1/quiz/{sid}/evaluate", headers=OWNER).json() == body
+    assert fake.calls == 1
+    client.post(f"/api/v1/quiz/{sid}/answer", json={"answer": "third"}, headers=OWNER)
+    fake.n_items = 3
+    assert len(client.get(f"/api/v1/quiz/{sid}/evaluate", headers=OWNER).json()["per_question"]) == 3
+    assert fake.calls == 2
+
+
+def test_rejects_out_of_range_speech_metrics(client):
+    sid = _create(client)["session_id"]
+    bad = {**SPEECH, "words_per_minute": 99999}
+    r = client.post(f"/api/v1/quiz/{sid}/answer", json={"answer": "x", "speech": bad}, headers=OWNER)
+    assert r.status_code == 422
+
+
+def test_unknown_session_id_is_404(client):
+    assert client.get("/api/v1/quiz/not-a-uuid/transcript", headers=OWNER).status_code == 404

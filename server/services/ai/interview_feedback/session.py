@@ -1,4 +1,3 @@
-import os
 import json
 import logging
 import pandas as pd
@@ -6,6 +5,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from pathlib import Path
 from langchain_openai import ChatOpenAI
+from llm import new_llm
 from pydantic import BaseModel
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -116,11 +116,8 @@ def _clamp_score(value, low: int = 1, high: int = 10) -> int:
 
 
 def _new_llm() -> ChatOpenAI:
-    return ChatOpenAI(
-        model=os.getenv("FEEDBACK_GEMINI_MODEL", "google/gemini-2.0-flash-001"),
-        api_key=os.getenv("FEEDBACK_OPENROUTER_API_KEY"),
-        base_url=os.getenv("FEEDBACK_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-    )
+    # Translation and evaluation both fit well under this, reasoning tokens included.
+    return new_llm(max_tokens=8000)
 
 
 class QuizSession:
@@ -137,27 +134,67 @@ class QuizSession:
     current one (1 right after creation, `num_questions` at the last one).
     """
 
-    def __init__(self, df: pd.DataFrame, role: str, num_questions: int, difficulty: str, language: str = "en"):
+    def __init__(self, df: Optional[pd.DataFrame], role: str, num_questions: int, difficulty: str, language: str = "en"):
         self.target_role = role
         self.difficulty = difficulty
         self.language = language if language in SUPPORTED_LANGUAGES else "en"
         self.answered = 0
+        # Delivery metrics per answer (None when unknown) and the cached evaluation.
+        self._speech: List[Optional[dict]] = []
+        self.evaluation: Optional[dict] = None
+        self.evaluated_answers = 0
+        self._translation_cache: dict = {}
+
+        if df is None:  # from_state() fills in the rest
+            self._questions: List[dict] = []
+            self._answers: List[Optional[str]] = []
+            self.num_questions = 0
+            return
 
         questions_df = _select_questions(df, role, num_questions, difficulty)
         # Build internal list of {question, ideal_answer}
-        self._questions: List[dict] = [
+        self._questions = [
             {"question": row["Question"], "ideal_answer": row["Answer"]}
             for _, row in questions_df.iterrows()
         ]
         # Report the real count — the pool may hold fewer than requested.
         self.num_questions = len(self._questions)
         # Stores candidate answers as they come in
-        self._answers: List[Optional[str]] = [None] * len(self._questions)
+        self._answers = [None] * len(self._questions)
+        self._speech = [None] * len(self._questions)
 
         # Translation cache — populated once at init for non-English sessions
-        self._translation_cache: dict = {}
         if self.language != "en":
             self._translate_all_questions()
+
+    # ── Persistence ───────────────────────────────────────────────────────────
+
+    def to_state(self) -> dict:
+        return {
+            "target_role": self.target_role,
+            "difficulty": self.difficulty,
+            "language": self.language,
+            "answered": self.answered,
+            "questions": self._questions,
+            "answers": self._answers,
+            "speech": self._speech,
+            "translations": self._translation_cache,
+            "evaluation": self.evaluation,
+            "evaluated_answers": self.evaluated_answers,
+        }
+
+    @classmethod
+    def from_state(cls, state: dict) -> "QuizSession":
+        quiz = cls(None, state["target_role"], 0, state["difficulty"], state.get("language", "en"))
+        quiz._questions = state["questions"]
+        quiz.num_questions = len(quiz._questions)
+        quiz._answers = state.get("answers") or [None] * quiz.num_questions
+        quiz._speech = state.get("speech") or [None] * quiz.num_questions
+        quiz.answered = state.get("answered", 0)
+        quiz._translation_cache = state.get("translations") or {}
+        quiz.evaluation = state.get("evaluation")
+        quiz.evaluated_answers = state.get("evaluated_answers", 0)
+        return quiz
 
     # ── Progress ──────────────────────────────────────────────────────────────
 
@@ -246,9 +283,9 @@ class QuizSession:
 
     # ── Answers ───────────────────────────────────────────────────────────────
 
-    def submit_answer(self, answer: str) -> tuple[Optional[str], bool]:
+    def submit_answer(self, answer: str, speech: Optional[dict] = None) -> tuple[Optional[str], bool]:
         """
-        Record the answer for the current question and advance.
+        Record the answer (and its delivery metrics) for the current question and advance.
         Returns (next_question_text | None, is_complete). The next question is
         raw English — api.py calls get_translated_question().
         """
@@ -256,6 +293,7 @@ class QuizSession:
             return None, True
 
         self._answers[self.answered] = answer.strip()
+        self._speech[self.answered] = speech
         self.answered += 1
 
         return self.current_question, self.is_complete
@@ -292,7 +330,12 @@ class QuizSession:
 
     # ── Evaluation ────────────────────────────────────────────────────────────
 
-    def evaluate(self) -> EvaluationResult:
+    def evaluate(self) -> dict:
+        """
+        Evaluate every answered question. Returns the EvaluationResult as a dict
+        with each per_question entry's `speech` metrics attached, cached until
+        another answer arrives.
+        """
         # Use raw English questions for LLM evaluation (better technical accuracy)
         # but keep translated versions to replace back into the result afterward.
         # Only answered questions are evaluated.
@@ -300,6 +343,8 @@ class QuizSession:
 
         if not raw_transcript:
             raise ValueError("No answers submitted yet.")
+        if self.evaluation and self.evaluated_answers == len(raw_transcript):
+            return self.evaluation
 
         formatted = "\n\n".join(
             f"Q{i + 1}: {t['question']}\n"
@@ -353,7 +398,12 @@ Scoring criteria per answer:
                 raise RuntimeError("API quota exhausted. Please try again later.")
             raise RuntimeError("Evaluation failed. Please try again later.")
 
-        return self._sanitize_result(result, raw_transcript)
+        data = self._sanitize_result(result, raw_transcript).model_dump()
+        for i, qe in enumerate(data["per_question"]):
+            qe["speech"] = self._speech[i] if i < len(self._speech) else None
+        self.evaluation = data
+        self.evaluated_answers = len(raw_transcript)
+        return data
 
     def _sanitize_result(self, result: EvaluationResult, raw_transcript: List[dict]) -> EvaluationResult:
         """

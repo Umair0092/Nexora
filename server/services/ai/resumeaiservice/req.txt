@@ -8,3 +8,5 @@ langchain-openai
 pypdf
 pydantic
 python-dotenv
+# Session store (Postgres, used when DATABASE_URL is set)
+psycopg[binary,pool]==3.2.10

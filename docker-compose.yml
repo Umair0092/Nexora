@@ -26,18 +26,25 @@ services:
     environment:
       PGHOST: db
       PGUSER: nexora
+      # Runs background jobs (daily practice reminders) inside the web process.
+      SOLID_QUEUE_IN_PUMA: "true"
     depends_on:
       db:
         condition: service_healthy
     expose:
       - "3000"
 
+  # Both AI services keep in-progress interviews in Postgres (DATABASE_URL), so a
+  # restart or redeploy doesn't lose them.
   ai-resume:
     restart: always
     build:
       context: ./server/services/ai/resumeaiservice
       dockerfile: Dockerfile
     env_file: .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
     expose:
       - "8000"
 
@@ -47,6 +54,9 @@ services:
       context: ./server/services/ai/interview_feedback
       dockerfile: Dockerfile
     env_file: .env.docker
+    depends_on:
+      db:
+        condition: service_healthy
     expose:
       - "8001"
 

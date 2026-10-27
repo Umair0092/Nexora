@@ -71,7 +71,7 @@ app.use((req, res, next) => {
 const generalLimit = rateLimit({ windowMs: 60_000, max: 120 });
 const expensiveLimit = rateLimit({ windowMs: 10 * 60_000, max: 60 });
 const isExpensive = (req: Request) =>
-  (req.method === "POST" && /^\/(v1\/(interviews|parse-resume|transcribe)|)$/.test(req.path)) ||
+  (req.method === "POST" && /^\/(v1\/(interviews|parse-resume|transcribe|score-answer|improve-answer)|)$/.test(req.path)) ||
   /\/(answer|evaluate)$/.test(req.path);
 
 function aiGuard(req: Request, res: Response, next: NextFunction) {

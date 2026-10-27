@@ -1,5 +1,5 @@
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_openai import ChatOpenAI
+from llm import new_llm
 import os
 from dotenv import load_dotenv
 from pathlib import Path
@@ -40,12 +40,16 @@ class Candidate(BaseModel):
 NO_TEXT_ERROR = "No readable text found in this PDF"
 
 
+class AIServiceError(RuntimeError):
+    """The PDF was fine but the AI provider failed (bad model, no credit, outage)."""
+
+
 def pdf_to_structure(file) -> Candidate:
     """
     Extract structured candidate data from a PDF file-like object.
 
-    Raises ValueError when the PDF has no extractable text (e.g. a scanned
-    image) or when the AI model fails to structure it. The temporary copy of
+    Raises ValueError when the PDF can't be read or has no extractable text
+    (e.g. a scanned image), and AIServiceError when the AI model call fails. The temporary copy of
     the PDF is always removed, even on failure.
 
     Example:
@@ -68,20 +72,15 @@ def pdf_to_structure(file) -> Candidate:
             raise ValueError(NO_TEXT_ERROR)
 
         try:
-            llm = ChatOpenAI(
-                model=os.getenv("RESUME_GEMINI_MODEL", "google/gemini-2.0-flash-001"),
-                temperature=0.1,
-                api_key=os.getenv("RESUME_OPENROUTER_API_KEY"),
-                base_url=os.getenv("RESUME_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            )
+            llm = new_llm(max_tokens=4000, temperature=0.1)
         except Exception as e:
-            raise ValueError(f"Failed to initialize AI model: {str(e)}")
+            raise AIServiceError(f"Failed to initialize AI model: {str(e)}")
 
         try:
             structured_llm = llm.with_structured_output(Candidate)
             return structured_llm.invoke(f"Extract structured information from this resume:\n\n{resume_text}")
         except Exception as e:
-            raise ValueError(f"Failed to parse resume content: {str(e)}")
+            raise AIServiceError(f"Failed to parse resume content: {str(e)}")
     finally:
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
