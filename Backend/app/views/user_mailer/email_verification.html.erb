@@ -1,0 +1,4 @@
+<p>Hi <%= @user.first_name.presence || "there" %>,</p>
+<p>Confirm this email address so Nexora can send you password resets and practice reminders.</p>
+<p><a href="<%= @url %>" class="button">Confirm my email</a></p>
+<p class="muted">The link works for 3 days. If you didn't create a Nexora account, ignore this email.</p>

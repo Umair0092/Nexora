@@ -1,0 +1,9 @@
+Hi <%= @user.first_name.presence || "there" %>,
+
+<% if @last_practiced_at %>Your last practice interview was <%= time_ago_in_words(@last_practiced_at) %> ago.<% else %>You haven't done a practice interview yet.<% end %> A short one keeps your answers sharp:
+
+<%= @url %>
+
+Your weekly goal is <%= @user.weekly_goal %> <%= "interview".pluralize(@user.weekly_goal) %>.
+
+Turn off these reminders: <%= @unsubscribe_url %>

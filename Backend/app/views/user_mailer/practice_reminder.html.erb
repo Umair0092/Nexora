@@ -1,0 +1,8 @@
+<p>Hi <%= @user.first_name.presence || "there" %>,</p>
+<p>
+  <% if @last_practiced_at %>Your last practice interview was <%= time_ago_in_words(@last_practiced_at) %> ago.<% else %>You haven't done a practice interview yet.<% end %>
+  A short one keeps your answers sharp.
+</p>
+<p><a href="<%= @url %>" class="button">Start an interview</a></p>
+<p>Your weekly goal is <%= @user.weekly_goal %> <%= "interview".pluralize(@user.weekly_goal) %>.</p>
+<p class="muted"><a href="<%= @unsubscribe_url %>">Turn off these reminders</a></p>

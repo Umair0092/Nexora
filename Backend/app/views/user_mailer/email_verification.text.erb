@@ -1,0 +1,7 @@
+Hi <%= @user.first_name.presence || "there" %>,
+
+Confirm this email address so Nexora can send you password resets and practice reminders:
+
+<%= @url %>
+
+The link works for 3 days. If you didn't create a Nexora account, ignore this email.

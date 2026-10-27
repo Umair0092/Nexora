@@ -29,6 +29,7 @@ module Api
       def register
         @user = User.new(user_params)
         if @user.save
+          send_verification(@user)
           token = JsonWebToken.encode(user_id: @user.id)
           render json: { token: token, user: UserSerializer.call(@user) }, status: :created
         else
@@ -41,6 +42,13 @@ module Api
       end
 
       private
+
+      # A mail outage must not block sign-up; the user can resend from the app.
+      def send_verification(user)
+        UserMailer.email_verification(user).deliver_now
+      rescue StandardError => e
+        Rails.logger.error("Verification email failed: #{e.class}: #{e.message}")
+      end
 
       def user_params
         permitted = params.permit(:email, :password, :first_name, :last_name, :firstName, :lastName)

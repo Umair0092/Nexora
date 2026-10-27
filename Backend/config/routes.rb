@@ -11,17 +11,35 @@ Rails.application.routes.draw do
       post "register", to: "auth#register"
       get "me", to: "auth#user"
 
+      post "password/forgot", to: "passwords#forgot"
+      post "password/reset", to: "passwords#reset"
+      post "email/verify", to: "email_verifications#create"
+      post "email/resend", to: "email_verifications#resend"
+      post "reminders/unsubscribe", to: "reminders#unsubscribe"
+
       resources :domains, only: [ :index, :show ]
 
       resources :sessions, controller: "interview_sessions", only: [ :index, :show ] do
          collection do
            get "stats"
+           get "progress"
            post "sync_ai_session"
          end
 
          resource :report, only: [ :show ]
+         resource :share, only: [ :create, :destroy ]
+         resources :answers, only: [] do
+           member do
+             post "attempts", action: :create_attempt
+             post "improve"
+           end
+         end
       end
-      resource :profile, only: [ :show, :update ], controller: "profile"
+      get "shared/:token", to: "shares#show", as: :shared_report
+
+      resource :profile, only: [ :show, :update, :destroy ], controller: "profile" do
+        get "export"
+      end
     end
   end
 end

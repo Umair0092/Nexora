@@ -9,7 +9,10 @@ class UserSerializer
       bio: user.bio,
       skills: user.skills || [],
       experience: user.experience || [],
-      resumeUrl: user.resume_url
+      resumeUrl: user.resume_url,
+      emailVerified: user.email_verified?,
+      remindersEnabled: user.reminders_enabled,
+      weeklyGoal: user.weekly_goal
     }
   end
 end

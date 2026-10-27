@@ -3,11 +3,18 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <style>
-      /* Email styles need to be inline */
+      body { margin: 0; padding: 32px 16px; background: #F4F6F9; color: #16213E; font-family: -apple-system, "Segoe UI", Arial, sans-serif; font-size: 16px; line-height: 1.5; }
+      .card { max-width: 520px; margin: 0 auto; background: #ffffff; border: 1px solid #DCE1EA; border-radius: 12px; padding: 28px; }
+      .brand { font-weight: 700; font-size: 18px; margin: 0 0 20px; }
+      .button { display: inline-block; background: #0E7C73; color: #ffffff !important; text-decoration: none; font-weight: 600; padding: 12px 20px; border-radius: 8px; }
+      .muted { color: #5B6478; font-size: 14px; }
     </style>
   </head>
 
   <body>
-    <%= yield %>
+    <div class="card">
+      <p class="brand">Nexora</p>
+      <%= yield %>
+    </div>
   </body>
 </html>
