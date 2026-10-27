@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const ME_KEY = ["/api/v1/me"];
 
-interface AuthResponse {
+export interface AuthResponse {
   token: string;
   user: User;
 }
@@ -74,6 +74,7 @@ export function useAuth() {
     isAuthenticated: !!user,
     loginMutation,
     registerMutation,
+    signedIn,
     logout,
   };
 }

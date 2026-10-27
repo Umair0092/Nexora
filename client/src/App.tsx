@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect, Link } from "wouter";
+import { Switch, Route, Redirect, Link, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -19,6 +19,12 @@ import InterviewSession from "@/pages/interview-session";
 import PerformanceReport from "@/pages/performance-report";
 import SessionHistory from "@/pages/session-history";
 import ProfilePage from "@/pages/profile";
+import AccountPage from "@/pages/account";
+import SharedReport from "@/pages/shared-report";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
+import VerifyEmail from "@/pages/verify-email";
+import Unsubscribe from "@/pages/unsubscribe";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const sidebarStyle = {
@@ -55,8 +61,20 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+const matchRoute = (pattern: string, path: string) =>
+  new RegExp(`^${pattern.replace(/:[^/]+/g, "[^/]+")}/?$`).test(path);
+
+// Pages reached from emails and share links work whether or not you're signed in.
+const PUBLIC_ROUTES: [string, () => JSX.Element | null][] = [
+  ["/shared/:token", SharedReport],
+  ["/reset-password", ResetPassword],
+  ["/verify-email", VerifyEmail],
+  ["/unsubscribe", Unsubscribe],
+];
+
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [location] = useLocation();
 
   if (isLoading) {
     return (
@@ -67,11 +85,23 @@ function Router() {
     );
   }
 
+  const publicRoute = PUBLIC_ROUTES.find(([path]) => matchRoute(path, location));
+  if (publicRoute) {
+    return (
+      <Switch>
+        {PUBLIC_ROUTES.map(([path, Page]) => (
+          <Route key={path} path={path} component={Page} />
+        ))}
+      </Switch>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <Switch>
         <Route path="/" component={Landing} />
         <Route path="/auth" component={AuthPage} />
+        <Route path="/forgot-password" component={ForgotPassword} />
         {/* Deep links to app pages land on sign-in rather than silently on the landing page. */}
         <Route>
           <Redirect to="/auth" />
@@ -93,6 +123,10 @@ function Router() {
         <Route path="/report/:id" component={PerformanceReport} />
         <Route path="/history" component={SessionHistory} />
         <Route path="/profile" component={ProfilePage} />
+        <Route path="/account" component={AccountPage} />
+        <Route path="/forgot-password">
+          <Redirect to="/account" />
+        </Route>
         <Route component={NotFound} />
       </Switch>
     </AuthenticatedLayout>

@@ -13,7 +13,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Mic, History, UserRound, LogOut } from "lucide-react";
+import { LayoutDashboard, Mic, History, UserRound, Settings, LogOut } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { displayName } from "@/lib/types";
 
@@ -22,6 +22,7 @@ const menuItems = [
   { title: "New interview", url: "/interview/setup", icon: Mic, testId: "start-interview" },
   { title: "Past interviews", url: "/history", icon: History, testId: "session-history" },
   { title: "Profile", url: "/profile", icon: UserRound, testId: "profile" },
+  { title: "Account", url: "/account", icon: Settings, testId: "account" },
 ];
 
 export function AppSidebar() {

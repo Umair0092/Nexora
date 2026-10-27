@@ -15,6 +15,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { api, getToken, errorMessage } from "@/lib/api";
+import { transcribe } from "@/lib/speech";
+import type { RawSpeechMetrics } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   Mic,
@@ -328,7 +330,8 @@ export default function InterviewSessionPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [status]);
 
-  // ── Finishing: evaluate, collect the camera summary, save to Rails ─────────
+  // ── Finishing: collect the camera summary, then Rails scores and saves ─────
+  // The browser only names the AI sessions; Rails fetches their evaluations itself.
 
   const finish = useMutation({
     mutationFn: async ({ cvCount, quizCount }: { cvCount: number; quizCount: number }) => {
@@ -337,50 +340,26 @@ export default function InterviewSessionPage() {
       const useQuiz = (isRoleBased || isCompleteMode) && quizCount > 0;
       if (!useCv && !useQuiz) return null;
 
-      const [cvEval, quizEval] = await Promise.all([
-        useCv ? api(`${cvEndpoint}/evaluate`) : Promise.resolve(null),
-        useQuiz ? api(`${quizEndpoint}/evaluate`) : Promise.resolve(null),
-      ]);
-
-      let evaluation: any = cvEval || quizEval;
-      if (cvEval && quizEval) {
-        const avg = (a: number, b: number) => Math.round((a + b) / 2);
-        evaluation = {
-          target_role: cvEval.target_role,
-          overall_score: avg(cvEval.overall_score, quizEval.overall_score),
-          communication_score: avg(cvEval.communication_score, quizEval.communication_score),
-          technical_score: avg(cvEval.technical_score, quizEval.technical_score),
-          hire_recommendation: cvEval.hire_recommendation,
-          top_strengths: [...cvEval.top_strengths, ...quizEval.top_strengths].slice(0, 5),
-          areas_to_improve: [...cvEval.areas_to_improve, ...quizEval.areas_to_improve].slice(0, 5),
-          summary: `${cvEval.summary} ${quizEval.summary}`.trim(),
-          recommendation_summary: cvEval.recommendation_summary || "",
-          improvement_points: [...(cvEval.improvement_points || []), ...(quizEval.areas_to_improve || [])].slice(0, 6),
-          per_question: [...cvEval.per_question, ...quizEval.per_question],
-        };
-      }
-
       const nonverbalReport = await finishNonverbal();
 
-      const saved = await api<{ session_id: number }>("/api/v1/sessions/sync_ai_session", {
+      return api<{ session_id: number }>("/api/v1/sessions/sync_ai_session", {
         method: "POST",
         body: {
           interviewType,
-          title: interviewType === "behavioral" ? "Behavioral interview" : evaluation.target_role || targetRole,
+          title: interviewType === "behavioral"
+            ? targetRole ? `${targetRole} behavioral interview` : "Behavioral interview"
+            : targetRole || undefined,
           startedAt: startedAtRef.current,
-          evaluation: { ...evaluation, language: lang },
+          cvSessionId: useCv ? params.id : undefined,
+          quizSessionId: useQuiz ? (isRoleBased ? params.id : quizSessionId) : undefined,
           nonverbalReport,
         },
       });
-
-      // Free the in-memory AI sessions; failures here don't matter to the user.
-      if (!isRoleBased) api(cvEndpoint, { method: "DELETE" }).catch(() => {});
-      if (isRoleBased || isCompleteMode) api(quizEndpoint, { method: "DELETE" }).catch(() => {});
-      return saved;
     },
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/v1/sessions/progress"] });
       setLocation(saved ? `/report/${saved.session_id}` : "/dashboard");
     },
     onError: (error) => {
@@ -396,11 +375,11 @@ export default function InterviewSessionPage() {
 
   // ── Answering ───────────────────────────────────────────────────────────────
 
-  const submitAnswer = async (text: string) => {
+  const submitAnswer = async (text: string, speech: RawSpeechMetrics | null) => {
     const endpoint = phase === "cv" ? `${cvEndpoint}/answer` : `${quizEndpoint}/answer`;
     const data = await api<{ next_question: string | null; is_complete: boolean }>(endpoint, {
       method: "POST",
-      body: { answer: text },
+      body: { answer: text, speech: speech ?? undefined },
     });
 
     const cvCount = cvAnswered + (phase === "cv" ? 1 : 0);
@@ -433,6 +412,7 @@ export default function InterviewSessionPage() {
     const blob = await stopRecording();
 
     let text = skip ? "(The candidate skipped this question.)" : "";
+    let speech: RawSpeechMetrics | null = null;
     if (!skip) {
       if (!blob || blob.size < 2000) {
         toast({ title: "We didn't hear an answer", description: "Check your microphone is on, then answer again." });
@@ -440,11 +420,9 @@ export default function InterviewSessionPage() {
         return;
       }
       try {
-        const form = new FormData();
-        form.append("file", blob, "answer.webm");
-        form.append("language", lang);
-        const result = await api<{ text: string }>("/api/ai/v1/transcribe", { method: "POST", body: form });
+        const result = await transcribe(blob, lang);
         text = result.text?.trim() || "";
+        speech = result.speech;
       } catch (error) {
         toast({ title: "Couldn't transcribe that answer", description: `${errorMessage(error)} Please answer again.`, variant: "destructive" });
         setStatus("recording");
@@ -458,7 +436,7 @@ export default function InterviewSessionPage() {
     }
 
     try {
-      await submitAnswer(text);
+      await submitAnswer(text, speech);
     } catch (error) {
       toast({ title: "Couldn't send your answer", description: errorMessage(error), variant: "destructive" });
       setStatus("recording");
@@ -569,7 +547,9 @@ export default function InterviewSessionPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate text-xl font-bold sm:text-2xl">
-            {interviewType === "behavioral" ? "Behavioral interview" : targetRole ? `${targetRole} interview` : "Interview"}
+            {interviewType === "behavioral"
+              ? targetRole ? `${targetRole} behavioral interview` : "Behavioral interview"
+              : targetRole ? `${targetRole} interview` : "Interview"}
           </h1>
           <p className="text-sm text-muted-foreground">
             Question {Math.min(questionNumber, totalQuestions)} of {totalQuestions}

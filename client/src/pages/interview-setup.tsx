@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -33,7 +34,7 @@ const TYPES: { id: InterviewType; title: string; body: string; meta: string; ico
   { id: "cv", title: "CV interview", body: "Questions about your own projects and experience.", meta: "5 questions, about 10 minutes", icon: <FileText /> },
   { id: "role", title: "Technical quiz", body: "Knowledge questions for one track, marked against model answers.", meta: "5 questions, about 8 minutes", icon: <Code /> },
   { id: "complete", title: "Full interview", body: "Five CV questions, then five technical ones.", meta: "10 questions, about 20 minutes", icon: <Layers /> },
-  { id: "behavioral", title: "Behavioral", body: "Teamwork, conflict and ownership, using your CV for context.", meta: "5 questions, about 10 minutes", icon: <Users /> },
+  { id: "behavioral", title: "Behavioral", body: "\"Tell me about a time…\" questions, scored on how well you use STAR.", meta: "5 questions, about 10 minutes", icon: <Users /> },
 ];
 
 const TRACK_ICONS: Record<string, JSX.Element> = {
@@ -55,6 +56,8 @@ const DIFFICULTIES = [
   { id: "medium", title: "Medium", body: "What most interviews ask" },
   { id: "hard", title: "Hard", body: "Senior-level depth" },
 ];
+
+const MAX_JOB_DESCRIPTION = 6000;
 
 const LANGUAGES = [
   { code: "en", name: "English", native: "English" },
@@ -130,6 +133,7 @@ export default function InterviewSetup() {
   const [difficulty, setDifficulty] = useState("medium");
   const [language, setLanguage] = useState("en");
   const [targetRole, setTargetRole] = useState("Software Engineer");
+  const [jobDescription, setJobDescription] = useState("");
   const [candidate, setCandidate] = useState<CandidateData | null>(null);
   const [cvSource, setCvSource] = useState<"upload" | "profile" | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -186,11 +190,18 @@ export default function InterviewSetup() {
 
   const startInterview = useMutation({
     mutationFn: async () => {
-      const role = interviewType === "behavioral" ? "Behavioral Interview" : targetRole.trim() || "Software Engineer";
+      const role = targetRole.trim() || "Software Engineer";
       const createCv = () =>
         api<{ session_id: string }>("/api/ai/v1/interviews", {
           method: "POST",
-          body: { candidate_data: candidate, target_role: role, num_questions: 5, language },
+          body: {
+            candidate_data: candidate,
+            target_role: role,
+            num_questions: 5,
+            language,
+            interview_style: interviewType === "behavioral" ? "behavioral" : "standard",
+            job_description: jobDescription.trim() || null,
+          },
         });
       const createQuiz = (level: string) =>
         api<{ session_id: string }>("/api/quiz", {
@@ -379,7 +390,7 @@ export default function InterviewSetup() {
                   title="Use my saved profile"
                   description={
                     profileHasCv
-                      ? `${user?.skills?.length ?? 0} skills and ${user?.experience?.length ?? 0} roles saved`
+                      ? `${user?.skills?.length ?? 0} skills and ${user?.experience?.length ?? 0} ${user?.experience?.length === 1 ? "role" : "roles"} saved`
                       : "Your profile is empty. Fill it in first."
                   }
                   className="h-full"
@@ -396,8 +407,9 @@ export default function InterviewSetup() {
                       {cvSource === "upload" ? "CV read" : "Profile loaded"}: {candidate.name}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {candidate.skills?.length || 0} skills, {candidate.work_experience?.length || 0} roles,{" "}
-                      {candidate.projects_done?.length || 0} projects
+                      {candidate.skills?.length || 0} skills, {candidate.work_experience?.length || 0}{" "}
+                      {candidate.work_experience?.length === 1 ? "role" : "roles"}, {candidate.projects_done?.length || 0}{" "}
+                      {candidate.projects_done?.length === 1 ? "project" : "projects"}
                     </p>
                   </div>
                   {cvSource === "upload" && (
@@ -417,18 +429,42 @@ export default function InterviewSetup() {
                     )}
                   </ul>
                 )}
-                {interviewType !== "behavioral" && (
-                  <div className="mt-5 space-y-2">
-                    <Label htmlFor="target-role">Role you're interviewing for</Label>
-                    <Input
-                      id="target-role"
-                      value={targetRole}
-                      maxLength={100}
-                      onChange={(e) => setTargetRole(e.target.value)}
-                      placeholder="e.g. Frontend Developer"
-                    />
-                  </div>
-                )}
+                <div className="mt-5 space-y-2">
+                  <Label htmlFor="target-role">Role you're interviewing for</Label>
+                  <Input
+                    id="target-role"
+                    value={targetRole}
+                    maxLength={100}
+                    onChange={(e) => setTargetRole(e.target.value)}
+                    placeholder="e.g. Frontend Developer"
+                  />
+                </div>
+              </div>
+            )}
+
+            {candidate && (
+              <div className="mt-4 rounded-xl border bg-card p-5">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <Label htmlFor="job-description" className="text-base font-semibold">
+                    Job description <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                    {jobDescription.length.toLocaleString()} / {MAX_JOB_DESCRIPTION.toLocaleString()}
+                  </span>
+                </div>
+                <p id="job-description-hint" className="mt-1 text-sm text-muted-foreground">
+                  Paste the job advert and the interviewer will focus on its requirements, especially the ones your CV covers least.
+                </p>
+                <Textarea
+                  id="job-description"
+                  aria-describedby="job-description-hint"
+                  value={jobDescription}
+                  maxLength={MAX_JOB_DESCRIPTION}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  className="mt-3 min-h-[8rem]"
+                  placeholder="e.g. We're hiring a backend engineer to build payment APIs. You'll need 2+ years of Ruby on Rails, PostgreSQL, and experience running services in production…"
+                  data-testid="input-job-description"
+                />
               </div>
             )}
           </section>
@@ -497,7 +533,8 @@ export default function InterviewSetup() {
             <dl className="mt-5 divide-y rounded-xl border bg-card">
               {[
                 ["Format", TYPES.find((t) => t.id === interviewType)?.title],
-                ...(interviewType === "cv" || interviewType === "complete" ? [["Role", targetRole]] : []),
+                ...(interviewType !== "role" ? [["Role", targetRole]] : []),
+                ...(interviewType !== "role" ? [["Job description", jobDescription.trim() ? "Included" : "None"]] : []),
                 ...(interviewType === "role" || interviewType === "complete" ? [["Track", trackLabel]] : []),
                 ...(interviewType === "role" ? [["Difficulty", DIFFICULTIES.find((d) => d.id === difficulty)?.title]] : []),
                 ["Answer language", langLabel],

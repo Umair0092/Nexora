@@ -17,6 +17,9 @@ export interface User {
   skills: string[];
   experience: Experience[];
   resumeUrl: string | null;
+  emailVerified: boolean;
+  remindersEnabled: boolean;
+  weeklyGoal: number;
 }
 
 export interface Domain {
@@ -47,6 +50,49 @@ export interface Question {
   text: string;
 }
 
+// Delivery metrics from Whisper word timestamps (see resumeaiservice/speech.py).
+export interface SpeechMetrics {
+  durationSeconds: number;
+  wordCount: number;
+  wordsPerMinute: number | null;
+  fillerCount: number;
+  fillers: Record<string, number>;
+  longPauses: number;
+  longestPauseSeconds: number;
+}
+
+// The same metrics as the transcribe endpoint returns them (snake_case), to send back with an answer.
+export interface RawSpeechMetrics {
+  duration_seconds: number;
+  word_count: number;
+  words_per_minute: number | null;
+  filler_count: number;
+  fillers: Record<string, number>;
+  long_pauses: number;
+  longest_pause_seconds: number;
+}
+
+export interface StarCoverage {
+  situation: boolean;
+  task: boolean;
+  action: boolean;
+  result: boolean;
+  note: string;
+}
+
+export interface AnswerAttempt {
+  id: number;
+  transcript: string;
+  score: number | null;
+  feedback: string | null;
+  recommendation: string | null;
+  strengths: string[];
+  improvements: string[];
+  star: StarCoverage | null;
+  speechMetrics: SpeechMetrics | null;
+  createdAt: string;
+}
+
 export interface Answer {
   id: number;
   transcript: string | null;
@@ -55,6 +101,12 @@ export interface Answer {
   strengths: string[] | null;
   weaknesses: string[] | null;
   duration: number | null;
+  idealAnswer: string | null;
+  improvedAnswer: string | null;
+  improvementNotes: string[] | null;
+  speechMetrics: SpeechMetrics | null;
+  star: StarCoverage | null;
+  attempts: AnswerAttempt[];
   question?: Question;
 }
 
@@ -72,10 +124,12 @@ export interface Evaluation {
   hireRecommendation?: string;
   summary?: string;
   recommendationSummary?: string;
+  jobFit?: string;
+  interviewStyle?: "standard" | "behavioral";
 }
 
 export interface Report {
-  id: number;
+  id?: number;
   overallScore: number;
   verbalScore: number | null;
   nonVerbalScore: number | null;
@@ -85,14 +139,34 @@ export interface Report {
   createdAt: string;
   session?: InterviewSession;
   answers?: Answer[];
-  nonVerbalData?: NonVerbalData;
+  nonVerbalData?: NonVerbalData | null;
   evaluation?: Evaluation;
+  hasJobDescription?: boolean;
+  shared?: boolean;
+  shareUrl?: string | null;
 }
 
 export interface SessionStats {
   totalSessions: number;
   completedSessions: number;
   averageScore: number;
+  currentStreak: number;
+  longestStreak: number;
+  practicedToday: boolean;
+  thisWeek: number;
+  weeklyGoal: number;
+}
+
+// One finished interview on the progress chart. Scores are 0–100.
+export interface ProgressPoint {
+  sessionId: number;
+  date: string | null;
+  title: string | null;
+  interviewType: InterviewType | null;
+  overall: number | null;
+  communication: number | null;
+  technical: number | null;
+  presence: number | null;
 }
 
 export function displayName(user: Pick<User, "firstName" | "lastName" | "email"> | null | undefined) {
