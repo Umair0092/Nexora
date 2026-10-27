@@ -1,6 +1,5 @@
-// One fetch helper for every backend (Rails under /api/v1, AI services under /api/ai and
-// /api/quiz). It attaches the JWT, turns error bodies into readable messages, and signs the
-// user out when the token has expired.
+// One fetch helper for the Rails API (/api/v1). It attaches the JWT, turns error bodies
+// into readable messages, and signs the user out when the token has expired.
 
 const TOKEN_KEY = "token";
 
@@ -47,9 +46,6 @@ function messageFrom(body: unknown, status: number): string {
     if (typeof b.error === "string") return b.error;
     if (Array.isArray(b.errors) && b.errors.length) return b.errors.join(". ");
     if (typeof b.message === "string") return b.message;
-    // FastAPI: { detail: "..." } or { detail: [{ msg }] }
-    if (typeof b.detail === "string") return b.detail;
-    if (Array.isArray(b.detail) && b.detail[0]?.msg) return String(b.detail[0].msg);
   }
   return FALLBACK_MESSAGES[status] || "Something went wrong. Please try again.";
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, Loader2, Mic, RotateCcw, Square, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useRecorder } from "@/hooks/use-recorder";
 import { api, errorMessage } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
+import { narrate } from "@/lib/narrator";
 import { transcribe } from "@/lib/speech";
 import type { Answer, AnswerAttempt } from "@/lib/types";
 import { Bullets, ScoreNumber, StarChecklist } from "@/components/report/report-parts";
@@ -32,13 +33,14 @@ export function RetryDialog({
   // afterwards and its latest attempt becomes this one.
   const [baseline, setBaseline] = useState<number | null | undefined>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const stopNarration = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!open) {
       setResult(null);
       setProblem(null);
       if (recorder.state === "recording") recorder.stop();
-      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      stopNarration.current?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -64,11 +66,9 @@ export function RetryDialog({
   });
 
   const readAloud = () => {
-    if (!("speechSynthesis" in window) || !answer?.question?.text) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(answer.question.text);
-    u.lang = "en-US";
-    window.speechSynthesis.speak(u);
+    if (!answer?.question?.text) return;
+    stopNarration.current?.();
+    stopNarration.current = narrate(answer.question.text);
   };
 
   const before = answer?.attempts?.length ? answer.attempts[answer.attempts.length - 1].score : answer?.score;

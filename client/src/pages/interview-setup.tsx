@@ -139,7 +139,7 @@ export default function InterviewSetup() {
   const [dragging, setDragging] = useState(false);
 
   const { data: categories, isLoading: categoriesLoading } = useQuery<{ categories: string[] }>({
-    queryKey: ["/api/quiz/categories"],
+    queryKey: ["/api/v1/quizzes/categories"],
     staleTime: Infinity,
   });
 
@@ -151,7 +151,7 @@ export default function InterviewSetup() {
     mutationFn: (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      return api<{ candidate_data: CandidateData }>("/api/ai/v1/parse-resume", { method: "POST", body: form });
+      return api<{ candidate_data: CandidateData }>("/api/v1/resume/parse", { method: "POST", body: form });
     },
     onSuccess: (data) => {
       setCandidate(data.candidate_data);
@@ -192,7 +192,7 @@ export default function InterviewSetup() {
     mutationFn: async () => {
       const role = targetRole.trim() || "Software Engineer";
       const createCv = () =>
-        api<{ session_id: string }>("/api/ai/v1/interviews", {
+        api<{ session_id: string }>("/api/v1/interviews", {
           method: "POST",
           body: {
             candidate_data: candidate,
@@ -204,7 +204,7 @@ export default function InterviewSetup() {
           },
         });
       const createQuiz = (level: string) =>
-        api<{ session_id: string }>("/api/quiz", {
+        api<{ session_id: string }>("/api/v1/quizzes", {
           method: "POST",
           body: { target_role: track, num_questions: 5, difficulty: level, language },
         });

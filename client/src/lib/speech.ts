@@ -11,7 +11,7 @@ export function transcribe(blob: Blob, language: string) {
   const form = new FormData();
   form.append("file", blob, "answer.webm");
   form.append("language", language);
-  return api<Transcription>("/api/ai/v1/transcribe", { method: "POST", body: form });
+  return api<Transcription>("/api/v1/transcriptions", { method: "POST", body: form });
 }
 
 // A comfortable interview pace is roughly 120–160 words per minute.

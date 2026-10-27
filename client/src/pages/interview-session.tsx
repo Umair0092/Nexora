@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { api, getToken, errorMessage } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
+import { startNonverbal, type AttentionReading, type NonverbalAnalyzer, type NonverbalSummary } from "@/lib/nonverbal";
+import { narrate } from "@/lib/narrator";
 import { transcribe } from "@/lib/speech";
 import type { RawSpeechMetrics } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -34,12 +36,6 @@ import {
 
 type Phase = "cv" | "role";
 type Status = "loading" | "speaking" | "recording" | "transcribing" | "paused" | "finishing" | "finished" | "error";
-
-interface AttentionReading {
-  score: number | null;
-  state: "ATTENTIVE" | "PARTIALLY ATTENTIVE" | "DISENGAGED" | null;
-  faceDetected: boolean;
-}
 
 const ATTENTION_COPY: Record<string, { label: string; tone: string }> = {
   ATTENTIVE: { label: "Engaged", tone: "text-success" },
@@ -61,8 +57,8 @@ export default function InterviewSessionPage() {
   const quizSessionId = search.get("quizSessionId") || "";
   const lang = search.get("lang") || "en";
 
-  const cvEndpoint = `/api/ai/v1/interviews/${params.id}`;
-  const quizEndpoint = `/api/quiz/${isRoleBased ? params.id : quizSessionId}`;
+  const cvEndpoint = `/api/v1/interviews/${params.id}`;
+  const quizEndpoint = `/api/v1/quizzes/${isRoleBased ? params.id : quizSessionId}`;
 
   const [phase, setPhase] = useState<Phase>(isRoleBased ? "role" : "cv");
   const [status, setStatus] = useState<Status>("loading");
@@ -81,14 +77,12 @@ export default function InterviewSessionPage() {
   const [confirmEnd, setConfirmEnd] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
-  const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const reportRef = useRef<any>(null);
-  const speechTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analyzerRef = useRef<NonverbalAnalyzer | null>(null);
+  const nonverbalRef = useRef<NonverbalSummary | null>(null);
+  const stopNarrationRef = useRef<(() => void) | null>(null);
   const startedAtRef = useRef(new Date().toISOString());
   const statusRef = useRef<Status>(status);
   statusRef.current = status;
@@ -96,93 +90,49 @@ export default function InterviewSessionPage() {
   // ── Speech ──────────────────────────────────────────────────────────────────
 
   const stopSpeaking = useCallback(() => {
-    if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    stopNarrationRef.current?.();
+    stopNarrationRef.current = null;
   }, []);
 
-  // Reads the question, then hands over to recording. Some browsers never fire `onend`,
-  // so a timeout based on the question's length guarantees we move on.
+  // Reads the question in the interviewer's voice, then hands over to recording.
   const askQuestion = useCallback(
     (text: string) => {
       stopSpeaking();
       setQuestion(text);
       statusRef.current = "speaking";
       setStatus("speaking");
-      const done = () => {
-        if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
+      stopNarrationRef.current = narrate(text, () => {
+        stopNarrationRef.current = null;
         if (statusRef.current === "speaking") setStatus("recording");
-      };
-      if (!("speechSynthesis" in window) || !text) return done();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "en-US";
-      utterance.rate = 1;
-      utterance.onend = done;
-      utterance.onerror = done;
-      window.speechSynthesis.speak(utterance);
-      speechTimeoutRef.current = setTimeout(done, 2500 + text.split(/\s+/).length * 450);
+      });
     },
     [stopSpeaking],
   );
 
-  // ── Nonverbal WebSocket (one per interview) ────────────────────────────────
+  // ── Camera analysis (in the browser; video never leaves the device) ─────
 
-  const connectNonverbal = useCallback(() => {
-    if (wsRef.current) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/nonverbal?token=${encodeURIComponent(getToken() || "")}`);
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "result") {
-        setAttention(
-          msg.faceDetected
-            ? { score: msg.attentionScore, state: msg.attentionState, faceDetected: true }
-            : { score: null, state: "DISENGAGED", faceDetected: false },
-        );
-      } else if (msg.type === "session_report") {
-        reportRef.current = msg;
-      }
-    };
-    ws.onerror = () => console.warn("Nonverbal analysis unavailable");
-    wsRef.current = ws;
-
-    frameTimerRef.current = setInterval(() => {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const track = streamRef.current?.getVideoTracks()[0];
-      if (!video || !canvas || ws.readyState !== WebSocket.OPEN || !track?.enabled) return;
-      if (statusRef.current === "paused" || statusRef.current === "finishing") return;
-      canvas.width = 320;
-      canvas.height = 240;
-      canvas.getContext("2d")?.drawImage(video, 0, 0, 320, 240);
-      const frameData = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
-      ws.send(JSON.stringify({ type: "frame", sessionId: params.id, timestamp: Date.now() / 1000, frameData }));
-    }, 500);
-  }, [params.id]);
-
-  // Ask the service for its session summary, wait up to 3s, then close.
-  const finishNonverbal = useCallback((): Promise<any> => {
-    if (frameTimerRef.current) clearInterval(frameTimerRef.current);
-    const ws = wsRef.current;
-    wsRef.current = null;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      ws?.close();
-      return Promise.resolve(reportRef.current);
-    }
-    return new Promise((resolve) => {
-      const finish = () => {
-        ws.close();
-        resolve(reportRef.current);
-      };
-      const timeout = setTimeout(finish, 3000);
-      ws.addEventListener("message", (e) => {
-        if (JSON.parse(e.data).type === "session_report") {
-          clearTimeout(timeout);
-          finish();
+  const startCameraAnalysis = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || analyzerRef.current) return;
+    startNonverbal(video, setAttention)
+      .then((analyzer) => {
+        // The interview may have ended while the models were loading.
+        if (statusRef.current === "finishing" || statusRef.current === "finished" || !streamRef.current) {
+          analyzer.finish();
+          return;
         }
-      });
-      ws.send(JSON.stringify({ type: "end_session", sessionId: params.id }));
-    });
-  }, [params.id]);
+        analyzerRef.current = analyzer;
+      })
+      .catch((error) => console.warn("Camera analysis unavailable", error));
+  }, []);
+
+  // Stops the analysis and keeps its summary for the report.
+  const finishCameraAnalysis = useCallback((): NonverbalSummary | null => {
+    const analyzer = analyzerRef.current;
+    analyzerRef.current = null;
+    if (analyzer) nonverbalRef.current = analyzer.finish();
+    return nonverbalRef.current;
+  }, []);
 
   // ── Media ───────────────────────────────────────────────────────────────────
 
@@ -238,8 +188,8 @@ export default function InterviewSessionPage() {
         let cvTrans: any = null;
         let quizTrans: any = null;
 
-        if (!isRoleBased) cvTrans = await api(`${cvEndpoint}/transcript`);
-        if (isRoleBased || isCompleteMode) quizTrans = await api(`${quizEndpoint}/transcript`);
+        if (!isRoleBased) cvTrans = await api(cvEndpoint);
+        if (isRoleBased || isCompleteMode) quizTrans = await api(quizEndpoint);
         if (cancelled) return;
 
         const cvDone = cvTrans ? cvTrans.conversation.filter((m: any) => m.role === "candidate").length : 0;
@@ -281,7 +231,7 @@ export default function InterviewSessionPage() {
           }
           streamRef.current = stream;
           if (videoRef.current) videoRef.current.srcObject = stream;
-          connectNonverbal();
+          startCameraAnalysis();
         } catch {
           setMediaError("Nexora needs your camera and microphone. Allow access in your browser's address bar, then reload.");
           setStatus("error");
@@ -299,9 +249,7 @@ export default function InterviewSessionPage() {
 
     return () => {
       cancelled = true;
-      if (frameTimerRef.current) clearInterval(frameTimerRef.current);
-      wsRef.current?.close();
-      wsRef.current = null;
+      finishCameraAnalysis();
       releaseMedia();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,12 +283,11 @@ export default function InterviewSessionPage() {
 
   const finish = useMutation({
     mutationFn: async ({ cvCount, quizCount }: { cvCount: number; quizCount: number }) => {
+      const nonverbalReport = finishCameraAnalysis();
       releaseMedia();
       const useCv = !isRoleBased && cvCount > 0;
       const useQuiz = (isRoleBased || isCompleteMode) && quizCount > 0;
       if (!useCv && !useQuiz) return null;
-
-      const nonverbalReport = await finishNonverbal();
 
       return api<{ session_id: number }>("/api/v1/sessions/sync_ai_session", {
         method: "POST",
@@ -395,7 +342,7 @@ export default function InterviewSessionPage() {
 
     if (isCompleteMode && phase === "cv") {
       // CV half done: move to the technical half.
-      const quiz = await api<{ current_question: string | null }>(`${quizEndpoint}/transcript`);
+      const quiz = await api<{ current_question: string | null }>(quizEndpoint);
       setPhase("role");
       setQuestionNumber((n) => n + 1);
       askQuestion(quiz.current_question || "");
@@ -475,8 +422,8 @@ export default function InterviewSessionPage() {
     stopSpeaking();
     stopRecording();
     if (cvAnswered + quizAnswered === 0) {
+      finishCameraAnalysis();
       releaseMedia();
-      finishNonverbal();
       setLocation("/dashboard");
       return;
     }
@@ -632,7 +579,6 @@ export default function InterviewSessionPage() {
         <aside className="flex flex-col gap-4">
           <div className="relative overflow-hidden rounded-2xl bg-muted">
             <video ref={videoRef} autoPlay muted playsInline className="aspect-video w-full -scale-x-100 object-cover lg:aspect-[4/3]" aria-label="Your camera preview" />
-            <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
             {(!cameraOn || status === "paused") && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted text-sm text-muted-foreground">
                 {status === "paused" ? <Pause className="h-8 w-8" aria-hidden="true" /> : <VideoOff className="h-8 w-8" aria-hidden="true" />}

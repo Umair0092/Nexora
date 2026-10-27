@@ -87,7 +87,7 @@ export default function ProfilePage() {
     mutationFn: (file: File) => {
       const form = new FormData();
       form.append("file", file);
-      return api<ParsedCv>("/api/ai/v1/parse-resume", { method: "POST", body: form });
+      return api<ParsedCv>("/api/v1/resume/parse", { method: "POST", body: form });
     },
     onSuccess: ({ candidate_data: c }) => {
       if (c.summary) setBio(c.summary);
