@@ -1,3 +1,6 @@
+# Nexora: one app container (Rails serving the API and the React client) plus Postgres.
+#   docker compose up --build        -> http://127.0.0.1:5001
+# Settings come from .env.docker (copy .env.example).
 services:
   db:
     image: postgres:15-alpine
@@ -7,7 +10,7 @@ services:
       POSTGRES_USER: nexora
       POSTGRES_DB: nexora_production
       # POSTGRES_PASSWORD comes from .env.docker
-    # Not published to the host: only the other containers can reach it.
+    # Not published to the host: only the app can reach it.
     # For a shell, use `docker compose exec db psql -U nexora nexora_production`.
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -17,77 +20,24 @@ services:
       timeout: 5s
       retries: 5
 
-  rails:
+  app:
     restart: always
-    build:
-      context: ./Backend
-      dockerfile: Dockerfile
+    build: .
     env_file: .env.docker
     environment:
       PGHOST: db
       PGUSER: nexora
-      # Runs background jobs (daily practice reminders) inside the web process.
+      # AI calls wait on the model for up to a minute, so give Puma enough threads.
+      RAILS_MAX_THREADS: "10"
+      # Runs background jobs (reminders, cleanup) inside the web process.
       SOLID_QUEUE_IN_PUMA: "true"
-    depends_on:
-      db:
-        condition: service_healthy
-    expose:
-      - "3000"
-
-  # Both AI services keep in-progress interviews in Postgres (DATABASE_URL), so a
-  # restart or redeploy doesn't lose them.
-  ai-resume:
-    restart: always
-    build:
-      context: ./server/services/ai/resumeaiservice
-      dockerfile: Dockerfile
-    env_file: .env.docker
-    depends_on:
-      db:
-        condition: service_healthy
-    expose:
-      - "8000"
-
-  ai-feedback:
-    restart: always
-    build:
-      context: ./server/services/ai/interview_feedback
-      dockerfile: Dockerfile
-    env_file: .env.docker
-    depends_on:
-      db:
-        condition: service_healthy
-    expose:
-      - "8001"
-
-  ai-nonverbal:
-    restart: always
-    build:
-      context: ./server/services/ai/nonverbal_cues
-      dockerfile: Dockerfile
-    env_file: .env.docker
-    expose:
-      - "8765"
-
-  gateway:
-    restart: always
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file: .env.docker
+      # Thruster rejects uploads above 20 MB before they reach Rails.
+      MAX_REQUEST_BODY: "20971520"
     ports:
-      - "5001:5000"
+      - "5001:80"
     depends_on:
       db:
         condition: service_healthy
-      rails:
-        condition: service_started
-      ai-resume:
-        condition: service_started
-      ai-feedback:
-        condition: service_started
-      ai-nonverbal:
-        condition: service_started
 
   # Public tunnel — opt in with `docker compose --profile tunnel up`.
   ngrok:
@@ -97,11 +47,11 @@ services:
     env_file: .env.docker
     command:
       - "http"
-      - "gateway:5000"
+      - "app:80"
     ports:
       - "4040:4040"
     depends_on:
-      gateway:
+      app:
         condition: service_started
 
 volumes:

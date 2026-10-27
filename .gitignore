@@ -51,9 +51,8 @@ Backend/log/*
 Backend/tmp/
 Backend/storage/*
 !Backend/storage/.keep
-Backend/public/assets
-Backend/public/packs
-Backend/public/packs-test
+# Built client (npm run build)
+Backend/public/
 Backend/node_modules
 Backend/yarn-error.log
 Backend/.env

@@ -9,12 +9,13 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 - **Mock Interviews** — Domain-specific sessions (Data Science, ML, Software Engineering, etc.) with configurable difficulty and question count
 - **Resume Parsing** — Upload a PDF resume; Nexora extracts your background and generates tailored interview questions
 - **AI Answer Evaluation** — Each response is scored 0–100 with detailed strengths, weaknesses, and feedback powered by an LLM on Groq (gpt-oss-120b by default; any OpenAI-compatible provider works)
-- **Real-Time Nonverbal Analysis** — Live webcam tracking of gaze, head pose, eye openness, blink rate, facial expressions, and hand movement via MediaPipe
-- **Attention Scoring** — Continuous attentiveness score (ATTENTIVE / PARTIALLY ATTENTIVE / DISENGAGED) streamed over WebSocket
+- **Real-Time Nonverbal Analysis** — Webcam tracking of gaze, head pose, eye openness, blink rate, facial expressions and hand movement with MediaPipe, run entirely in the browser: video never leaves your device, only the end-of-interview summary is saved
+- **Attention Scoring** — Continuous attentiveness score (ATTENTIVE / PARTIALLY ATTENTIVE / DISENGAGED) shown live during the interview
 - **Performance Reports** — Post-session reports with overall, verbal, and nonverbal scores plus behavioral notes and improvement recommendations
 - **Session History** — Dashboard to review past sessions and track progress over time
 - **Job-targeted interviews** — Paste a job description and the interviewer probes its requirements, especially the ones your CV covers least; the report adds a "Fit for this job" assessment
 - **Behavioral (STAR) interviews** — "Tell me about a time…" questions, with each answer checked for Situation, Task, Action and Result
+- **Natural interviewer voice** — Questions are read aloud with a neural voice (Groq Orpheus, cached per question); browsers fall back to their most natural built-in voice if it's unavailable
 - **Speaking feedback** — Pace (words per minute), filler words and long pauses from Whisper word timestamps, per answer and overall
 - **Practise weak answers** — Re-answer any report question and see the new score next to the old one; or see a stronger version of your own answer, and the model answer for quiz questions
 - **Progress chart, streaks and weekly goal** — Scores over time on the dashboard, plus optional email reminders after 3 days without practice
@@ -25,37 +26,29 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 
 ## Architecture
 
+One Rails app and Postgres. Rails serves the JSON API and the built React app on the same port, and talks to the AI provider directly.
+
 ```
-                         ┌─────────────────────────────┐
-                         │    Browser (React + Vite)   │
-                         └──────────────┬──────────────┘
-                                        │ HTTP / WebSocket
-                         ┌──────────────▼──────────────┐
-                         │  Express Gateway  (port 5000) │
-                         └──┬──────────┬───────────┬───┘
-                /api/ai/*   │          │ /api/*    │ /ws/nonverbal
-     ┌──────────────────────▼──┐  ┌────▼────────┐  ┌─▼──────────────────┐
-     │  Resume AI Service      │  │ Rails API   │  │ Nonverbal Service   │
-     │  FastAPI  (port 8000)   │  │ (port 3000) │  │ FastAPI + WS (8765) │
-     └─────────────────────────┘  └─────────────┘  └────────────────────┘
-                /api/quiz/*
-     ┌──────────────────────────┐
-     │  Interview Feedback Svc  │
-     │  FastAPI  (port 8001)    │
-     └──────────────────────────┘
-                         ┌─────────────────────────────┐
-                         │    PostgreSQL  (port 5432)  │
-                         └─────────────────────────────┘
+   Browser: React app + MediaPipe (camera analysis stays on the device)
+        │  HTTPS (one origin)
+   ┌────▼──────────────────────────────────────────┐        ┌─────────────────────┐
+   │  Rails 8 (Puma behind Thruster)               │ ─────► │ Groq (or any        │
+   │  • /api/v1/*  JSON API                        │        │ OpenAI-compatible   │
+   │  • everything else: the React app (public/)   │        │ API): chat, Whisper │
+   │  • background jobs (Solid Queue, in Puma)     │        └─────────────────────┘
+   └────┬──────────────────────────────────────────┘
+   ┌────▼───────┐
+   │ PostgreSQL │  users, interviews in progress, reports, job queue
+   └────────────┘
 ```
 
-| Service | Port | Responsibility |
+| Part | Where | Responsibility |
 |---|---|---|
-| Express Gateway + React | 5000 | Proxy routing, JWT checks, rate limits, static assets |
-| Rails API | 3000 | Users, sessions, answers, reports (REST) |
-| Resume AI Service | 8000 | PDF parsing, LLM interview sessions, Whisper transcription |
-| Interview Feedback | 8001 | CSV-based quiz questions, AI answer scoring |
-| Nonverbal Cues | 8765 | Real-time MediaPipe + OpenCV analysis over WebSocket |
-| PostgreSQL | 5432 | Primary database for all services |
+| React client | `client/` | UI; camera analysis with MediaPipe in the browser (`client/src/lib/nonverbal.ts`) |
+| Rails app | `Backend/` | Accounts, interviews and quizzes in progress, AI calls, scoring, reports, email, jobs |
+| PostgreSQL | | The only datastore |
+
+The AI code lives in `Backend/app/services`: `Llm` (HTTP client with retries), `CvInterview` (CV and behavioral interviews), `QuizRun` (question-bank quizzes), `AnswerCoach` (retries and rewrites), `ResumeParser` and `SpeechMetrics`. Interviews in progress are `LiveInterview` rows, so restarts and deploys don't lose them.
 
 ---
 
@@ -63,134 +56,59 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 
 **Frontend**
 - React 18 + TypeScript, Vite, Tailwind CSS
-- Radix UI, Framer Motion, Recharts, Lucide React
+- Radix UI, Framer Motion, Lucide React
 - React Query, React Hook Form + Zod, Wouter
+- MediaPipe Tasks (face and hand landmarks, WebAssembly)
 
-**Gateway / Backend**
-- Express.js (TypeScript) gateway, http-proxy-middleware
-- Rails 8.1 (Ruby), Puma, JWT, Bcrypt, PostgreSQL
-
-**AI / ML Microservices**
-- FastAPI + Uvicorn (Python)
-- LangChain + Groq (gpt-oss-120b; swappable via LLM_BASE_URL / LLM_MODEL)
-- Groq Whisper API (speech transcription)
-- MediaPipe (pose, hands, face mesh)
-- OpenCV (video processing)
-
----
-
-## Prerequisites
-
-- **Node.js** 20+ and **npm**
-- **Ruby** 3.3+ and **Bundler**
-- **Python** 3.11+
-- **PostgreSQL** 15+
-- A free Groq API key (console.groq.com)
+**Backend**
+- Rails 8.1 (Ruby), Puma + Thruster, JWT, Bcrypt, PostgreSQL, Solid Queue
+- Groq: gpt-oss-120b for interviews and scoring (swappable via `LLM_BASE_URL` / `LLM_MODEL`), Whisper for transcription, Orpheus for the interviewer's voice
+- pdf-reader for CVs
 
 ---
 
 ## Getting Started
 
-### 1. Clone and install root dependencies
+### With Docker (simplest)
 
 ```bash
-git clone <repo-url>
-cd nexora
-npm install
-```
-
-### 2. Configure environment variables
-
-```bash
-cp .env.example .env.docker                                  # Docker stack
-cp server/services/ai/.env.example server/services/ai/.env   # running AI services locally
-```
-
-Generate a shared JWT secret: Rails signs tokens with it and the gateway verifies them before forwarding anything to the AI services.
-
-```bash
+cp .env.example .env.docker      # then fill in GROQ_API_KEY, passwords and JWT_SECRET
 echo "JWT_SECRET=$(openssl rand -hex 48)" >> .env.docker
+docker compose up --build        # http://127.0.0.1:5001
 ```
 
-Never commit real keys. `.env*` files are git-ignored; only the `.example` files are tracked.
-
-**Email** (password resets, confirmation links, reminders): set `SMTP_ADDRESS`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `MAIL_FROM` for any SMTP provider (Brevo and Resend have free tiers), and `APP_URL` to the address people open the app at. Without SMTP, emails are written to `Backend/tmp/mails/<address>` (inside the `rails` container under Docker) and their links are logged, so resets still work locally.
-
-### 3. Set up the database
-
-```bash
-cd Backend
-bundle install
-bin/rails db:prepare
-```
-
-Rails owns the whole schema. The gateway has no database of its own.
-
-### 4. Start each service
-
-Export the same `JWT_SECRET` in the shells for Rails and the gateway.
-
-**Express Gateway + React (port 5000)**
-```bash
-npm run dev
-```
-
-**Rails API (port 3000)**
-```bash
-cd Backend
-bin/rails s
-```
-
-**Resume AI Service (port 8000)**
-```bash
-cd server/services/ai/resumeaiservice
-pip install -r req.txt
-uvicorn api:app --host 127.0.0.1 --port 8000 --reload
-```
-
-**Interview Feedback Service (port 8001)**
-```bash
-cd server/services/ai/interview_feedback
-pip install -r requirements.txt
-uvicorn api:app --host 127.0.0.1 --port 8001 --reload
-```
-
-**Nonverbal Cues Service (port 8765)**
-```bash
-cd server/services/ai/nonverbal_cues
-pip install -r requirements.txt
-uvicorn ws_server:app --host 127.0.0.1 --port 8765 --reload
-```
-
----
-
-## Docker (Recommended)
-
-```bash
-docker compose up --build        # app on http://localhost:5001
-```
-
-Services: `db`, `rails`, `ai-resume`, `ai-feedback`, `ai-nonverbal`, `gateway`. Postgres is not published to the host; use `docker compose exec db psql -U nexora nexora_production` for a shell.
-
-- In-progress interviews are stored in Postgres (`ai_sessions`), so restarting or redeploying the AI services doesn't lose them.
-- Background jobs run inside the Rails web process (`SOLID_QUEUE_IN_PUMA`), including the daily practice-reminder email at 9am. Run it by hand with `docker compose exec rails bin/rails nexora:send_reminders`.
+Two containers: `app` and `db`. Postgres is not published to the host; use `docker compose exec db psql -U nexora nexora_production` for a shell. Background jobs (the daily practice reminder at 9am, cleanup of abandoned interviews) run inside the app process; send reminders by hand with `docker compose exec app bin/rails nexora:send_reminders`.
 
 A public ngrok tunnel is opt-in: `docker compose --profile tunnel up`. Anyone with the URL can reach the app, so only run it when you need to.
 
-Rails serves plain HTTP behind the gateway. Set `RAILS_FORCE_SSL=true` only when Rails itself sits behind HTTPS; otherwise its HSTS header pins `localhost` to HTTPS in your browser. If that has already happened, clear it at `chrome://net-internals/#hsts` (delete the domain `localhost`).
+The app serves plain HTTP. Set `RAILS_FORCE_SSL=true` only when it sits behind HTTPS; otherwise its HSTS header pins `localhost` to HTTPS in your browser. If that has already happened, clear it at `chrome://net-internals/#hsts` (delete the domain `localhost`).
+
+### For development
+
+Needs Node.js 20+, Ruby 4.0 (see Backend/.ruby-version), PostgreSQL 15+ and a free Groq API key (console.groq.com).
+
+```bash
+npm install
+cd Backend && bundle install && bin/rails db:prepare && cd ..
+cp .env.example .env             # set GROQ_API_KEY; DATABASE_URL can point at your local Postgres
+bin/dev                          # Rails on :3000, Vite on :5173 -> open http://127.0.0.1:5173
+```
+
+`bin/dev` loads `.env`, runs Rails and the Vite dev server (hot reload), and Vite forwards `/api` to Rails. Use `RAILS_PORT=3100 VITE_PORT=5180 bin/dev` if those ports are taken. Never commit real keys: `.env*` files are git-ignored; only `.env.example` is tracked.
+
+**Email** (password resets, confirmation links, reminders): set `SMTP_ADDRESS`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `MAIL_FROM` for any SMTP provider (Brevo and Resend have free tiers), and `APP_URL` to the address people open the app at. Without SMTP, emails are written to `Backend/tmp/mails/<address>` and their links are logged, so resets still work locally.
 
 ---
 
 ## Tests
 
 ```bash
-npm run check                                              # TypeScript
-cd Backend && bin/rails test                               # Rails API (needs Postgres)
-cd server/services/ai/interview_feedback && pytest tests   # quiz service
-cd server/services/ai/resumeaiservice && pytest tests      # resume / CV interview service
+npm run check                    # TypeScript
+npm run build                    # client build (into Backend/public)
+cd Backend && bin/rails test     # Rails, including all AI code with the model stubbed (needs Postgres)
 ```
 
-Run each Python suite from its own folder: both services have modules named `api` and `session`. CI runs all of these on every pull request. The session-store tests also run against Postgres when you set `TEST_DATABASE_URL` (e.g. `createdb nexora_ai_test && TEST_DATABASE_URL=postgresql:///nexora_ai_test pytest tests`).
+CI runs both on every push and pull request, plus RuboCop, Brakeman and bundler-audit.
 
 ---
 
@@ -198,32 +116,23 @@ Run each Python suite from its own folder: both services have modules named `api
 
 | Command | Description |
 |---|---|
-| `npm run dev` | Start gateway + React in development mode |
-| `npm run build` | Build client (Vite) + gateway bundle (esbuild) |
-| `npm start` | Run built gateway in production |
+| `bin/dev` | Rails + Vite for development |
+| `npm run dev` | Vite only (expects Rails on :3000, or `RAILS_URL`) |
+| `npm run build` | Build the client into `Backend/public` |
 | `npm run check` | TypeScript type check |
 
 ---
 
 ## Routing and security
 
-The Express gateway is the only public entry point. It serves the React app and proxies:
+Everything is served from one origin by Rails: `/api/v1/*` is the JSON API (JWT in the `Authorization` header), and every other path returns the React app.
 
-| Pattern | Forwarded to | Auth |
-|---|---|---|
-| `/api/v1/*` | Rails (3000) | Rails verifies the JWT itself |
-| `/api/ai/*` | Resume AI (8000) | Gateway verifies the JWT and forwards `X-User-Id` |
-| `/api/quiz/*` | Quiz service (8001) | Gateway verifies the JWT and forwards `X-User-Id` |
-| `WS /ws/nonverbal?token=…` | Nonverbal (8765) | Gateway verifies the token and checks Origin on upgrade |
-
-Other protections:
-
-- **AI sessions** are bound to the user who created them; any other user gets a 404.
-- **Scores come from the server.** When an interview is saved, Rails fetches the evaluation from the AI services itself (server-to-server, as that user), so the browser can't submit or edit scores. Retries and rewrites are scored the same way.
-- **Rate limits:**
-  - LLM and transcription calls are limited per user at the gateway.
-  - Login, register and password reset are limited per IP in Rails; saving, retrying and rewriting answers are limited per user.
-- **Security headers:** the gateway sets CSP, X-Frame-Options, nosniff and Referrer-Policy.
+- **Interviews in progress** belong to the user who started them; any other user gets a 404. Abandoned ones are deleted after 3 hours idle.
+- **Scores come from the server.** Saving an interview scores it in Rails from the stored conversation, so the browser can't submit or edit scores. Retries and rewrites are scored the same way.
+- **Camera video never leaves the device.** MediaPipe runs in the browser; only the summary (attention distribution, hand activity) is sent with the report.
+- **Rate limits:** login, register and password reset per IP; starting interviews, answering, uploads, saving, retrying and rewriting per user.
+- **Uploads:** CVs must be real PDFs (checked by content, max 10 MB); audio max 15 MB. Thruster rejects bodies over 20 MB in Docker.
+- **Security headers** on every response: CSP (allowing WebAssembly for MediaPipe), `X-Frame-Options: DENY`, nosniff, Referrer-Policy and Permissions-Policy.
 
 Main Rails endpoints:
 
@@ -232,11 +141,15 @@ Main Rails endpoints:
 | `POST /api/v1/register`, `POST /api/v1/login` | Returns `{ token, user }` |
 | `GET /api/v1/me`, `GET/PUT /api/v1/profile` | Current user (camelCase keys) |
 | `GET /api/v1/sessions`, `GET /api/v1/sessions/stats` | Interview history |
-| `POST /api/v1/sessions/sync_ai_session` | Save a finished interview from `{ cvSessionId?, quizSessionId?, nonverbalReport }`; Rails fetches and sanitises the evaluation |
+| `POST /api/v1/interviews`, `GET /api/v1/interviews/:id`, `POST /api/v1/interviews/:id/answer` | CV or behavioral interview in progress |
+| `GET /api/v1/quizzes/categories`, `POST /api/v1/quizzes`, `GET /api/v1/quizzes/:id`, `POST /api/v1/quizzes/:id/answer` | Technical quiz in progress |
+| `POST /api/v1/resume/parse`, `POST /api/v1/transcriptions` | Read a CV PDF; transcribe an answer with speech metrics |
+| `POST /api/v1/speech` | The interviewer's voice: `{ text }` in, WAV out (503 when unavailable, so the browser falls back) |
+| `POST /api/v1/sessions/sync_ai_session` | Save a finished interview from `{ cvSessionId?, quizSessionId?, nonverbalReport }`; Rails scores it and deletes the live interview |
 | `GET /api/v1/sessions/progress` | One point per finished interview for the progress chart |
 | `GET /api/v1/sessions/stats?tz=Area/City` | Totals, streaks and weekly goal progress in the user's timezone |
 | `GET /api/v1/sessions/:id/report` | Full report for one interview |
-| `POST /api/v1/sessions/:id/answers/:answer_id/attempts` | Retry one question; scored by the AI service |
+| `POST /api/v1/sessions/:id/answers/:answer_id/attempts` | Retry one question; scored on the server |
 | `POST /api/v1/sessions/:id/answers/:answer_id/improve` | A stronger version of the answer (generated once, then cached) |
 | `POST/DELETE /api/v1/sessions/:id/share`, `GET /api/v1/shared/:token` | Create or revoke a share link; read a shared report without signing in |
 | `POST /api/v1/password/forgot`, `POST /api/v1/password/reset` | Password reset by email |
@@ -249,31 +162,25 @@ Main Rails endpoints:
 
 ```
 Nexora/
-├── Backend/                    # Rails 8 REST API (users, sessions, reports)
+├── Backend/                    # Rails app: API, AI services, jobs, mailers
 │   ├── app/controllers/api/v1/
-│   ├── app/serializers/
-│   ├── db/migrate/
-│   └── test/integration/
-├── server/
-│   ├── index.ts                # Gateway: proxying, auth, rate limits, headers
-│   ├── auth.ts                 # JWT verification + rate limiter
-│   └── services/ai/
-│       ├── resumeaiservice/    # CV parsing, CV interview, Whisper (port 8000)
-│       ├── interview_feedback/ # Technical quiz + evaluation (port 8001)
-│       └── nonverbal_cues/     # MediaPipe WebSocket server (port 8765)
-├── client/src/
-│   ├── pages/
-│   ├── components/             # app components + ui/ (shadcn)
-│   └── lib/                    # api client, types
-├── docker-compose.yml
-└── package.json
+│   ├── app/services/           # Llm, CvInterview, QuizRun, AnswerCoach, ResumeParser, SpeechMetrics
+│   ├── app/models/             # incl. LiveInterview (interviews in progress)
+│   ├── db/data/question_bank.csv
+│   └── test/
+├── client/
+│   ├── public/models/          # MediaPipe face and hand models
+│   └── src/                    # pages, components, lib (api, nonverbal, speech)
+├── bin/dev                     # development: Rails + Vite
+├── Dockerfile                  # one image: builds the client, runs Rails
+└── docker-compose.yml          # app + db
 ```
 
 ---
 
 ## Nonverbal Metrics
 
-The nonverbal service streams the following metrics live during an interview:
+The browser computes these metrics live during an interview (about two frames a second):
 
 | Metric | States |
 |---|---|

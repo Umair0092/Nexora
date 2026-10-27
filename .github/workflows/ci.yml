@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  gateway-and-client:
+  client:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,27 +20,3 @@ jobs:
         run: npm run check
       - name: Build
         run: npm run build
-
-  ai-services:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: interview_feedback
-            requirements: requirements.txt
-          - service: resumeaiservice
-            requirements: req.txt
-    defaults:
-      run:
-        working-directory: server/services/ai/${{ matrix.service }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: server/services/ai/${{ matrix.service }}/${{ matrix.requirements }}
-      - run: pip install -r ${{ matrix.requirements }} pytest httpx
-      - name: Test
-        run: python -m pytest tests -q

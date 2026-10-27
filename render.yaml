@@ -9,7 +9,7 @@ services:
   - type: web
     name: nexora-backend
     runtime: docker
-    rootDir: Backend
+    dockerfilePath: ./Dockerfile
     plan: free
     region: frankfurt
     envVars:

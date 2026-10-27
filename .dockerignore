@@ -1,0 +1,21 @@
+# Only what the Dockerfile copies: package files, client sources and Backend/.
+**/.git
+**/node_modules
+**/.env
+**/.env.*
+!.env.example
+.github
+.claude
+attached_assets
+front-end
+dist
+server
+Backend/.bundle
+Backend/log/*
+Backend/tmp/*
+Backend/storage/*
+Backend/public
+Backend/config/master.key
+Backend/config/credentials/*.key
+Backend/.kamal
+Backend/config/deploy*.yml
