@@ -22,7 +22,7 @@ class ReportToolsTest < ActionDispatch::IntegrationTest
     score = { "score" => 8, "strengths" => [ "Accurate" ], "improvements" => [ "Example" ], "feedback" => "Better.",
               "recommendation" => "Add an example.", "star" => nil }
     speech = { duration_seconds: 20, word_count: 50, words_per_minute: 150, filler_count: 1, fillers: { um: 1 }, long_pauses: 0, longest_pause_seconds: 1 }
-    calls = stub_ai(score: score) do
+    calls = stub_coach(score: score) do
       post attempts_path, params: { transcript: " An index is a B-tree ", score: 100, speech: speech }, headers: auth_headers(@user), as: :json
     end
 
@@ -30,8 +30,7 @@ class ReportToolsTest < ActionDispatch::IntegrationTest
     assert_equal 80.0, json["score"]
     assert_equal "An index is a B-tree", json["transcript"]
     assert_equal 150, json["speechMetrics"]["wordsPerMinute"]
-    user, payload = calls[:score_answer].first
-    assert_equal @user, user
+    payload = calls[:score].first
     assert_equal({ question: "What is an index?", answer: "An index is a B-tree", target_role: "Backend Engineer",
                    interview_style: "standard", ideal_answer: "A B-tree that...", job_description: nil, language: "en" }, payload)
 
@@ -41,16 +40,16 @@ class ReportToolsTest < ActionDispatch::IntegrationTest
 
   test "behavioral retries ask for STAR scoring" do
     @session.update!(interview_type: "behavioral")
-    calls = stub_ai(score: { "score" => 6, "star" => { "situation" => true, "task" => false, "action" => true, "result" => false, "note" => "n" } }) do
+    calls = stub_coach(score: { "score" => 6, "star" => { "situation" => true, "task" => false, "action" => true, "result" => false, "note" => "n" } }) do
       post attempts_path, params: { transcript: "Once I..." }, headers: auth_headers(@user), as: :json
     end
     assert_response :created
-    assert_equal "behavioral", calls[:score_answer].first.last[:interview_style]
+    assert_equal "behavioral", calls[:score].first[:interview_style]
     assert_equal false, json["star"]["task"]
   end
 
   test "retries are owner-only and need a transcript" do
-    stub_ai(score: { "score" => 5 }) do
+    stub_coach(score: { "score" => 5 }) do
       post attempts_path, params: { transcript: "x" }, headers: auth_headers(@other), as: :json
       assert_response :not_found
 
@@ -64,11 +63,11 @@ class ReportToolsTest < ActionDispatch::IntegrationTest
   end
 
   test "an AI failure during a retry is a readable 503" do
-    stub_ai(score: AiServices::Error.new(AiServices::BUSY)) do
+    stub_coach(score: Llm::Error.new) do
       post attempts_path, params: { transcript: "x" }, headers: auth_headers(@user), as: :json
     end
     assert_response :service_unavailable
-    assert_equal AiServices::BUSY, json["error"]
+    assert_equal Llm::BUSY, json["error"]
     assert_equal 0, AnswerAttempt.count
   end
 
@@ -76,19 +75,19 @@ class ReportToolsTest < ActionDispatch::IntegrationTest
 
   test "the rewrite is generated once and then served from the cache" do
     improve = { "improved_answer" => "An index is a B-tree [example].", "changes" => [ "Led with the definition" ] }
-    calls = stub_ai(improve: improve) do
+    calls = stub_coach(improve: improve) do
       2.times do
         post "/api/v1/sessions/#{@session.id}/answers/#{@answer.id}/improve", headers: auth_headers(@user), as: :json
         assert_response :ok
       end
     end
-    assert_equal 1, calls[:improve_answer].size
-    assert_equal "It makes reads fast", calls[:improve_answer].first.last[:answer]
+    assert_equal 1, calls[:improve].size
+    assert_equal "It makes reads fast", calls[:improve].first[:answer]
     assert_equal({ "improvedAnswer" => "An index is a B-tree [example].", "improvementNotes" => [ "Led with the definition" ] }, json)
   end
 
   test "rewrites are owner-only and report AI failures" do
-    stub_ai(improve: AiServices::Error.new(AiServices::BUSY)) do
+    stub_coach(improve: Llm::Error.new) do
       post "/api/v1/sessions/#{@session.id}/answers/#{@answer.id}/improve", headers: auth_headers(@other), as: :json
       assert_response :not_found
       post "/api/v1/sessions/#{@session.id}/answers/#{@answer.id}/improve", headers: auth_headers(@user), as: :json

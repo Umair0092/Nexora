@@ -42,11 +42,13 @@ class InterviewSessionsTest < ActionDispatch::IntegrationTest
     }
   end
 
+  # Posts to sync_ai_session with live interviews holding these evaluations,
+  # filling in the id for each half named in `params`.
   def sync(params, cv: hostile_evaluation, quiz: hostile_evaluation, user: @user)
-    calls = stub_ai(cv: cv, quiz: quiz) do
-      post "/api/v1/sessions/sync_ai_session", params: params, headers: auth_headers(user), as: :json
-    end
-    calls
+    params = params.dup
+    params[:cvSessionId] = live_interview(user, cv, kind: "cv").id if params.key?(:cvSessionId) && cv
+    params[:quizSessionId] = live_interview(user, quiz, kind: "quiz").id if params.key?(:quizSessionId) && quiz
+    post "/api/v1/sessions/sync_ai_session", params: params, headers: auth_headers(user), as: :json
   end
 
   test "sync_ai_session requires auth" do
@@ -56,15 +58,13 @@ class InterviewSessionsTest < ActionDispatch::IntegrationTest
     assert_equal 0, InterviewSession.count
   end
 
-  test "sync_ai_session takes scores from the AI service, not the request, and sanitizes them" do
-    calls = sync({ interviewType: "cv", cvSessionId: "cv-1", title: "  Senior Backend Engineer  ",
-                   startedAt: 20.minutes.ago.iso8601, nonverbalReport: nonverbal,
-                   evaluation: { overall_score: 10, per_question: [ { question: "forged", score: 10 } ] } })
+  test "sync_ai_session takes scores from the live interview, not the request, and sanitizes them" do
+    sync({ interviewType: "cv", cvSessionId: "cv-1", title: "  Senior Backend Engineer  ",
+           startedAt: 20.minutes.ago.iso8601, nonverbalReport: nonverbal,
+           evaluation: { overall_score: 10, per_question: [ { question: "forged", score: 10 } ] } })
 
     assert_response :ok
-    assert_equal [ [ "cv-1", @user ] ], calls[:evaluate_interview]
-    assert_empty calls[:evaluate_quiz]
-    assert_equal [ [ "cv-1", @user ] ], calls[:delete_interview]
+    assert_equal 0, LiveInterview.count, "the live interview is deleted once saved"
 
     session = InterviewSession.find(json["session_id"])
     report = Report.find(json["report_id"])
@@ -97,12 +97,11 @@ class InterviewSessionsTest < ActionDispatch::IntegrationTest
     assert_operator evaluation["summary"].length, :<=, 2000
   end
 
-  test "a technical quiz only asks the quiz service" do
-    calls = sync({ interviewType: "role", quizSessionId: "quiz-9", cvSessionId: "ignored" })
+  test "a technical quiz only uses the quiz" do
+    sync({ interviewType: "role", quizSessionId: "quiz-9", cvSessionId: "ignored" })
 
     assert_response :ok
-    assert_empty calls[:evaluate_interview]
-    assert_equal [ [ "quiz-9", @user ] ], calls[:evaluate_quiz]
+    assert_equal [ "cv" ], LiveInterview.pluck(:kind), "the CV interview wasn't part of this save"
     assert_equal "role", InterviewSession.last.interview_type
   end
 
@@ -124,8 +123,8 @@ class InterviewSessionsTest < ActionDispatch::IntegrationTest
   end
 
   test "a full interview ended during the CV half saves just that half" do
-    no_answers = AiServices::Error.new("No answers submitted yet.", :unprocessable_entity)
-    sync({ interviewType: "complete", cvSessionId: "cv-1", quizSessionId: "quiz-1" }, cv: ai_evaluation, quiz: no_answers)
+    sync({ interviewType: "complete", cvSessionId: "cv-1", quizSessionId: "quiz-1" },
+         cv: ai_evaluation, quiz: ai_evaluation("per_question" => []))
 
     assert_response :ok
     assert_equal 1, InterviewSession.last.answers.count
@@ -141,14 +140,32 @@ class InterviewSessionsTest < ActionDispatch::IntegrationTest
     assert_equal 0, InterviewSession.count
   end
 
-  test "an expired or unavailable AI session is reported clearly" do
-    sync({ interviewType: "cv", cvSessionId: "cv-1" }, cv: AiServices::Error.new(AiServices::EXPIRED, :not_found))
+  test "an expired, someone else's or unscorable interview is reported clearly" do
+    post "/api/v1/sessions/sync_ai_session", params: { interviewType: "cv", cvSessionId: SecureRandom.uuid },
+                                             headers: auth_headers(@user), as: :json
     assert_response :not_found
-    assert_equal AiServices::EXPIRED, json["error"]
+    assert_equal LiveInterview::EXPIRED, json["error"]
 
-    sync({ interviewType: "cv", cvSessionId: "cv-1" }, cv: AiServices::Error.new(AiServices::BUSY))
+    others = live_interview(create_user(email: "other@example.com"))
+    post "/api/v1/sessions/sync_ai_session", params: { interviewType: "cv", cvSessionId: others.id },
+                                             headers: auth_headers(@user), as: :json
+    assert_response :not_found
+
+    old = live_interview(@user)
+    old.update_columns(updated_at: (LiveInterview::TTL + 1.minute).ago)
+    post "/api/v1/sessions/sync_ai_session", params: { interviewType: "cv", cvSessionId: old.id },
+                                             headers: auth_headers(@user), as: :json
+    assert_response :not_found
+
+    unscored = live_interview(@user)
+    unscored.update!(state: unscored.state.merge("evaluation" => nil))
+    stub_llm(json: ->(*, **) { raise Llm::Error }) do
+      post "/api/v1/sessions/sync_ai_session", params: { interviewType: "cv", cvSessionId: unscored.id },
+                                               headers: auth_headers(@user), as: :json
+    end
     assert_response :service_unavailable
     assert_equal 0, InterviewSession.count
+    assert LiveInterview.exists?(unscored.id), "a failed save keeps the interview so it can be retried"
   end
 
   test "sync_ai_session does not create public domains" do

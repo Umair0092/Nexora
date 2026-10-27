@@ -29,11 +29,7 @@ gem "kamal", require: false
 # Add HTTP asset caching/compression and X-Sendfile acceleration to Puma [https://github.com/basecamp/thruster/]
 gem "thruster", require: false
 
-# Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
-gem "image_processing", "~> 1.2"
 
-# Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
-gem "rack-cors"
 
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
@@ -51,3 +47,13 @@ end
 
 gem "jwt", "~> 3.1"
 gem "bcrypt", "~> 3.1"
+
+# Reads text out of uploaded CVs (pure Ruby, no system libraries).
+gem "pdf-reader", "~> 2.14"
+# Loads the quiz question bank (no longer a default gem in Ruby 3.4+).
+gem "csv"
+
+group :test do
+  # Minitest 6 moved `stub` and `Mock` into their own gem.
+  gem "minitest-mock"
+end

@@ -8,6 +8,7 @@ class User < ApplicationRecord
   has_secure_password
   has_many :interview_sessions, dependent: :destroy
   has_many :reports, dependent: :destroy
+  has_many :live_interviews, dependent: :delete_all
 
   normalizes :email, with: ->(e) { e.strip.downcase }
 
@@ -59,24 +60,17 @@ class User < ApplicationRecord
   end
 
   # Deletes the account and everything it owns, including the per-answer
-  # questions created for its interviews and any AI sessions still in progress.
+  # questions created for its interviews. In-progress interviews go with it
+  # (live_interviews cascades on delete).
   def destroy_with_data!
     transaction do
       question_ids = Answer.joins(:interview_session).where(interview_sessions: { user_id: id }).pluck(:question_id)
       destroy!
       Question.where(id: question_ids).where.missing(:answers).delete_all
-      purge_ai_sessions
     end
   end
 
   private
-
-  def purge_ai_sessions
-    conn = self.class.connection
-    return unless conn.table_exists?("ai_sessions")
-
-    conn.exec_delete(self.class.sanitize_sql_array([ "DELETE FROM ai_sessions WHERE owner = ?", id.to_s ]), "AI sessions")
-  end
 
   def experience_shape
     return if experience.nil?

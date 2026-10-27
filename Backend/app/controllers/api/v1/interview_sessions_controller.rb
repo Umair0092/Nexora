@@ -9,8 +9,6 @@ module Api
       CV_TYPES = %w[cv complete behavioral].freeze
       QUIZ_TYPES = %w[role complete].freeze
       STAR_KEYS = %w[situation task action result].freeze
-      SPEECH_INT_KEYS = %w[word_count words_per_minute filler_count long_pauses].freeze
-      SPEECH_FLOAT_KEYS = %w[duration_seconds longest_pause_seconds].freeze
 
       # Each save runs up to two LLM evaluations.
       rate_limit to: 20, within: 10.minutes, only: :sync_ai_session, name: "sync-ai", by: -> { current_user.id },
@@ -83,9 +81,9 @@ module Api
         render json: points
       end
 
-      # Saves a finished interview. The browser only says which AI sessions it ran;
-      # Rails asks the AI services for their evaluations itself, so the scores
-      # can't be supplied or edited by the client.
+      # Saves a finished interview. The browser only says which live interviews it
+      # ran; Rails scores them itself, so the scores can't be supplied or edited
+      # by the client.
       def sync_ai_session
         interview_type = INTERVIEW_TYPES.include?(params[:interviewType].to_s) ? params[:interviewType].to_s : DEFAULT_INTERVIEW_TYPE
         cv_id = params[:cvSessionId].presence if CV_TYPES.include?(interview_type)
@@ -159,10 +157,11 @@ module Api
           )
         end
 
-        AiServices.delete_interview(cv_id, current_user) if cv_id
-        AiServices.delete_quiz(quiz_id, current_user) if quiz_id
+        current_user.live_interviews.where(id: [ cv_id, quiz_id ].compact).delete_all
         render json: { success: true, session_id: @session.id, report_id: @report.id }
-      rescue AiServices::Error => e
+      rescue LiveInterview::Expired => e
+        render json: { error: e.message }, status: :not_found
+      rescue Llm::Error => e
         render json: { error: e.message }, status: e.status
       rescue StandardError => e
         Rails.logger.error("sync_ai_session failed: #{e.class}: #{e.message}\n#{Array(e.backtrace).first(15).join("\n")}")
@@ -171,13 +170,11 @@ module Api
 
       private
 
-      # Evaluations from the CV and/or quiz half. A half with no answers yet (the
-      # service answers 400) is skipped; a Full interview's halves are combined.
+      # Evaluations from the CV and/or quiz half. A half with no answers yet is
+      # skipped; a Full interview's halves are combined.
       def fetch_evaluation(cv_id, quiz_id)
-        cv_thread = Thread.new { evaluation_or_nil { AiServices.evaluate_interview(cv_id, current_user) } } if cv_id
-        cv_thread&.report_on_exception = false
-        quiz = evaluation_or_nil { AiServices.evaluate_quiz(quiz_id, current_user) } if quiz_id
-        cv = cv_thread&.value
+        cv = evaluate_live(cv_id, "cv") if cv_id
+        quiz = evaluate_live(quiz_id, "quiz") if quiz_id
         return cv || quiz unless cv && quiz
 
         avg = ->(key) { ((cv[key].to_f + quiz[key].to_f) / 2).round }
@@ -200,12 +197,12 @@ module Api
         }
       end
 
-      def evaluation_or_nil
-        yield
-      rescue AiServices::Error => e
-        raise unless e.status == :unprocessable_entity
-
-        nil
+      # The interview's evaluation plus its settings, or nil when it has no answers.
+      def evaluate_live(id, kind)
+        LiveInterview.open!(current_user, id, kind) do |engine|
+          evaluation = engine.evaluate!
+          evaluation && engine.summary.merge(evaluation)
+        end
       end
 
       def score_percent(value)
@@ -234,7 +231,7 @@ module Api
             "recommendation" => text(q["recommendation"], 2000),
             "ideal_answer" => text(q["ideal_answer"], 5000),
             "star" => sanitize_star(q["star"]),
-            "speech" => sanitize_speech(q["speech"])
+            "speech" => SpeechMetrics.sanitize(q["speech"])
           }
         end
 
@@ -267,18 +264,6 @@ module Api
 
         STAR_KEYS.index_with { |k| ActiveModel::Type::Boolean.new.cast(raw[k]) || false }
                  .merge("note" => text(raw["note"], 500))
-      end
-
-      def sanitize_speech(raw)
-        return nil unless raw.is_a?(Hash)
-
-        fillers = (raw["fillers"].is_a?(Hash) ? raw["fillers"] : {}).first(MAX_LIST_ITEMS).each_with_object({}) do |(word, count), h|
-          word = text(word, 30)
-          h[word] = clamp_int(count, 0, 5000, 0) if word.present?
-        end
-        SPEECH_INT_KEYS.index_with { |k| clamp_int(raw[k], 0, 20_000, nil) }
-                       .merge(SPEECH_FLOAT_KEYS.index_with { |k| clamp_float(raw[k], 0, 3600).round(1) })
-                       .merge("fillers" => fillers)
       end
 
       # Keeps the nonVerbalData shape the report page reads (camelized on output).

@@ -174,15 +174,13 @@ class AccountTest < ActionDispatch::IntegrationTest
     assert_response :unauthorized
   end
 
-  test "delete also removes the user's in-progress AI sessions" do
-    conn = ActiveRecord::Base.connection
-    conn.execute("CREATE TABLE IF NOT EXISTS ai_sessions (id uuid PRIMARY KEY, kind text, owner text, state jsonb)")
-    conn.execute("INSERT INTO ai_sessions VALUES (gen_random_uuid(), 'quiz', '#{@user.id}', '{}'), (gen_random_uuid(), 'quiz', '999999', '{}')")
+  test "delete also removes the user's in-progress interviews" do
+    live_interview(@user)
+    other = create_user(email: "keeper@example.com")
+    kept = live_interview(other)
 
     delete "/api/v1/profile", params: { password: "password123" }, headers: auth_headers(@user), as: :json
     assert_response :no_content
-    assert_equal [ "999999" ], conn.select_values("SELECT owner FROM ai_sessions")
-  ensure
-    conn&.execute("DROP TABLE IF EXISTS ai_sessions")
+    assert_equal [ kept.id ], LiveInterview.pluck(:id)
   end
 end

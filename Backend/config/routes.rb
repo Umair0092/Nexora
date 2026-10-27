@@ -19,6 +19,18 @@ Rails.application.routes.draw do
 
       resources :domains, only: [ :index, :show ]
 
+      # Interviews in progress (scored and removed by sessions/sync_ai_session).
+      resources :interviews, only: [ :create, :show, :destroy ] do
+        post "answer", on: :member
+      end
+      resources :quizzes, only: [ :create, :show, :destroy ] do
+        get "categories", on: :collection
+        post "answer", on: :member
+      end
+      post "resume/parse", to: "uploads#parse_resume"
+      post "transcriptions", to: "uploads#transcribe"
+      post "speech", to: "speeches#create"
+
       resources :sessions, controller: "interview_sessions", only: [ :index, :show ] do
          collection do
            get "stats"
@@ -42,4 +54,8 @@ Rails.application.routes.draw do
       end
     end
   end
+
+  # Everything else is the React app; it handles its own routes.
+  get "*path", to: "spa#index", constraints: ->(req) { req.format.html? && !req.path.start_with?("/api/") }
+  root "spa#index"
 end
