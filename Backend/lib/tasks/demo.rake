@@ -224,6 +224,49 @@ class DemoData
                                    panelists: @people.first(2), created_at: starts - 3.days)
     org.hiring_events.create!(action: "meeting_scheduled", user: @people.first, candidate: c,
                               details: { meeting_id: meeting.id }, created_at: [ starts - 3.days, Time.current ].min)
+    return if upcoming
+
+    # Interviews that already happened have the notetaker's transcript and minutes.
+    meeting.update!(notetaker: true, notetaker_status: "done", transcript_source: "bot", transcript: call_transcript(c, meeting),
+                    minutes: call_minutes(c), minutes_status: "done", minutes_at: meeting.ends_at + 3.minutes)
+    org.hiring_events.create!(action: "minutes_ready", candidate: c, details: { meeting_id: meeting.id }, created_at: meeting.ends_at + 3.minutes)
+  end
+
+  def call_transcript(c, meeting)
+    lead = meeting.panelists.first.then { |u| "#{u.first_name} #{u.last_name}" }
+    [
+      [ lead, 4, "Thanks for making the time. Let's start with the payouts design we sent over. Talk us through it." ],
+      [ c.name, 15, "I split it into a scheduler that picks the merchants due tonight and one job per merchant, each with its own retries." ],
+      [ lead, 52, "What if the bank call times out but the money moved?" ],
+      [ c.name, 58, "Every payout carries an idempotency key that we store with the result, so a retry gets the original answer instead of paying twice." ],
+      [ "Riya Shah", 140, "How would you roll that out without risking tonight's run?" ],
+      [ c.name, 147, "Behind a flag for five per cent of merchants, comparing totals against the old job for a week before switching." ],
+      [ "Riya Shah", 610, "Any questions for us?" ],
+      [ c.name, 615, "How is on-call shared, and what does the first month look like?" ]
+    ].map { |speaker, start, text| { "speaker" => speaker, "start" => start.to_f, "text" => text } }
+  end
+
+  def call_minutes(c)
+    first = c.name.split.first
+    {
+      "summary" => "The panel went through #{first}'s payouts design, failure handling and rollout plan. #{first} gave concrete, " \
+                   "well-reasoned answers on idempotency and a staged rollout, and asked about on-call and onboarding.",
+      "topics" => [
+        { "title" => "Payouts design", "notes" => "A scheduler for due merchants and one job per merchant with its own retries, so one failure doesn't block the rest." },
+        { "title" => "Timeouts and double payments", "notes" => "Idempotency keys stored with each result; retries return the original answer." },
+        { "title" => "Rollout", "notes" => "Behind a flag for 5% of merchants, comparing totals with the old job for a week." },
+        { "title" => "Questions from #{first}", "notes" => "Asked how on-call is shared and what the first month looks like." }
+      ],
+      "criteria" => [
+        { "criterion" => "System design", "signal" => "strong", "evidence" => "Per-merchant jobs with isolated retries; a clear split between scheduling and work." },
+        { "criterion" => "Debugging and incidents", "signal" => "mixed", "evidence" => "Covered prevention well; less on how they'd investigate a live failure." },
+        { "criterion" => "Reliability practices", "signal" => "strong", "evidence" => "Idempotency keys, staged rollout behind a flag, comparing totals before switching." },
+        { "criterion" => "Communication", "signal" => "strong", "evidence" => "Structured answers that started from the risk, then the fix." }
+      ],
+      "candidateQuestions" => [ "How is on-call shared?", "What does the first month look like?" ],
+      "concerns" => [ "Didn't size the ledger table's growth", "Little on investigating a failure in progress" ],
+      "followUps" => [ { "owner" => "Riya Shah", "item" => "Send the offer details" }, { "owner" => "Panel", "item" => "Ask about incident investigation in the final call" } ]
+    }
   end
 
   def evaluation(job, score, quality)

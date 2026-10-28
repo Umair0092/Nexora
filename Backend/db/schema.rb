@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_090001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -217,6 +217,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_090001) do
     t.string "google_event_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "notetaker", default: false, null: false
+    t.string "notetaker_status"
+    t.string "bot_id"
+    t.string "notetaker_error"
+    t.jsonb "transcript"
+    t.string "transcript_source"
+    t.jsonb "minutes"
+    t.string "minutes_status"
+    t.datetime "minutes_at"
+    t.index ["bot_id"], name: "index_meetings_on_bot_id", unique: true
     t.index ["candidate_id"], name: "index_meetings_on_candidate_id"
     t.index ["created_by_id"], name: "index_meetings_on_created_by_id"
     t.index ["organization_id", "starts_at"], name: "index_meetings_on_organization_id_and_starts_at"

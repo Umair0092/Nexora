@@ -1,0 +1,9 @@
+The minutes of the interview with <%= @candidate.name %> (<%= @candidate.job.title %>, <%= @when %>) are ready.
+<% if @summary.present? -%>
+
+<%= @summary %>
+<% end -%>
+
+Read the minutes: <%= @url %>
+
+Written by AI from the call's transcript. It reports what was said; the decision is the panel's.

@@ -11,6 +11,10 @@ Hi <%= @candidate.name %>,
 
 Join: <%= @meeting.meeting_url %>
 <% end -%>
+<% if @meeting.notetaker -%>
+
+<%= @for_candidate ? "#{@company} uses Nexora's notetaker to record and transcribe interviews, so the panel has accurate notes. It joins the call as \"Nexora Notetaker\". If you'd rather it didn't, reply to this email before the interview." : "Nexora Notetaker will join to record the call and write the minutes." %>
+<% end -%>
 <% if @meeting.agenda.present? -%>
 
 <%= @meeting.agenda %>
