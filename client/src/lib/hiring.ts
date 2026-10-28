@@ -50,6 +50,42 @@ export interface CandidateRow {
   link: string;
 }
 
+export type MeetingProvider = "google_meet" | "zoom" | "teams" | "link";
+
+export interface Meeting {
+  id: number;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  durationMinutes: number;
+  timeZone: string;
+  meetingUrl: string | null;
+  provider: MeetingProvider;
+  status: "scheduled" | "cancelled";
+  agenda: string;
+  inGoogleCalendar: boolean;
+  createdBy: string | null;
+  panel: { id: number; name: string }[];
+  candidate: { id: number; name: string; jobTitle: string };
+}
+
+export const PROVIDER_LABELS: Record<MeetingProvider, string> = {
+  google_meet: "Google Meet",
+  zoom: "Zoom",
+  teams: "Microsoft Teams",
+  link: "Video call",
+};
+
+export const MEETING_DURATIONS = [15, 30, 45, 60, 90];
+
+/** "Thu 30 Oct, 10:00–10:45" in the viewer's own time zone. */
+export function meetingTime(m: Pick<Meeting, "startsAt" | "endsAt">) {
+  const start = new Date(m.startsAt);
+  const day = start.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return `${day}, ${time(start)}–${time(new Date(m.endsAt))}`;
+}
+
 export interface Scorecard {
   userId: number;
   by: string;
@@ -84,6 +120,7 @@ export interface CandidateDetail extends CandidateRow {
   myScorecard: Scorecard | null;
   scorecards: Scorecard[];
   activity: ActivityEvent[];
+  meetings: Meeting[];
 }
 
 export interface Note {
@@ -128,6 +165,7 @@ export interface ApplyState {
   currentQuestion: string | null;
   consentedAt: string | null;
   completedAt: string | null;
+  upcomingInterview: (Pick<Meeting, "title" | "startsAt" | "durationMinutes" | "meetingUrl" | "provider">) | null;
 }
 
 export const STATUS_LABELS: Record<CandidateStatus, string> = {
@@ -196,6 +234,9 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   note_added: "Added a note",
   email_sent: "Emailed",
   resume_added: "Added a CV",
+  meeting_scheduled: "Scheduled an interview",
+  meeting_rescheduled: "Changed an interview",
+  meeting_cancelled: "Cancelled an interview",
 };
 
 export interface ActivityEvent {
@@ -231,6 +272,9 @@ export function feedSentence(e: ActivityEvent): { before: string; after: string 
     case "stage_changed": return { before: `${by} moved`, after: `to ${to}` };
     case "note_added": return { before: `${by} added a note on`, after: "" };
     case "email_sent": return { before: `${by} emailed`, after: "" };
+    case "meeting_scheduled": return { before: `${by} scheduled an interview with`, after: "" };
+    case "meeting_rescheduled": return { before: `${by} changed the interview with`, after: "" };
+    case "meeting_cancelled": return { before: `${e.by ?? "The team"} cancelled the interview with`, after: "" };
     default: return { before: e.by ? `${e.by}: ${activityText(e).toLowerCase()}` : activityText(e), after: "" };
   }
 }
@@ -252,6 +296,7 @@ export interface HiringOverview {
   needsReview: { id: number; name: string; jobId: number; jobTitle: string; aiScore: number | null; resumeScore: number | null; completedAt: string }[];
   activity: (ActivityEvent & { id: number; candidate: { id: number; name: string; jobTitle: string } | null })[];
   columns: Record<string, Partial<Record<Column, number>>>;
+  upcomingMeetings: Meeting[];
 }
 
 // Placeholders a template or email can use, with what each becomes.

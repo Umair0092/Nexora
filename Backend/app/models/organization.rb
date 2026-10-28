@@ -6,6 +6,7 @@ class Organization < ApplicationRecord
   has_many :jobs, dependent: :destroy
   has_many :candidates, through: :jobs
   has_many :hiring_events, dependent: :delete_all
+  has_many :meetings, dependent: :destroy
   has_many :email_templates, -> { order(:name) }, dependent: :delete_all
 
   after_create :add_default_email_templates

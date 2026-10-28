@@ -194,6 +194,7 @@ class DemoData
       from = stage
     end
     c.update!(stage: stages.last) if stages.any?
+    interviews(org, c, stages, index)
 
     @people.first(stages.any? ? 2 : 1).each_with_index do |person, k|
       ratings = job.criteria.to_h { |cr| [ cr, (score / 20.0 + ((cr.length + k) % 3) - 1).round.clamp(1, 5) ] }
@@ -207,6 +208,22 @@ class DemoData
     c.notes.create!(user: author, body: NOTES[index % NOTES.size], created_at: done + 1.day)
     org.hiring_events.create!(action: "note_added", user: author, candidate: c, details: { mentions: 0 }, created_at: done + 1.day)
     c
+  end
+
+  # A booked interview for anyone at Interviewing; past ones for people further on.
+  def interviews(org, c, stages, index)
+    return unless stages.include?("interviewing")
+
+    upcoming = stages.last == "interviewing"
+    starts = upcoming ? (1 + index % 3).days.from_now.change(hour: 11 + index % 4) : c.completed_at + 6.days + 4.hours
+    code = Digest::SHA256.hexdigest(c.name)[0, 10].tr("0-9", "a-j")
+    meeting = org.meetings.create!(candidate: c, created_by: @people.first, title: "Interview: #{c.name}, #{c.job.title}",
+                                   starts_at: starts, duration_minutes: 45, time_zone: "Europe/London",
+                                   meeting_url: "https://meet.google.com/#{code[0, 3]}-#{code[3, 4]}-#{code[7, 3]}",
+                                   agenda: "System design for 30 minutes, then time for their questions.",
+                                   panelists: @people.first(2), created_at: starts - 3.days)
+    org.hiring_events.create!(action: "meeting_scheduled", user: @people.first, candidate: c,
+                              details: { meeting_id: meeting.id }, created_at: [ starts - 3.days, Time.current ].min)
   end
 
   def evaluation(job, score, quality)

@@ -1,0 +1,14 @@
+<% if @for_candidate %>
+<p>Hi <%= @candidate.name %>,</p>
+<p><%= @update ? "#{@company} has changed your interview" : "#{@company} would like to meet you" %> for <strong><%= @candidate.job.title %></strong>.</p>
+<% else %>
+<p><%= @update ? "This interview has changed" : "You're on the panel for this interview" %>: <strong><%= @candidate.name %></strong>, <%= @candidate.job.title %>.</p>
+<% end %>
+<p><strong><%= @when %></strong><br><%= @meeting.duration_minutes %> minutes<% if @panel.any? %> with <%= @panel.to_sentence %><% end %></p>
+<% if @meeting.meeting_url.present? %>
+<p><a href="<%= @meeting.meeting_url %>" class="button">Join the meeting</a></p>
+<% end %>
+<% if @meeting.agenda.present? %>
+<p><%= simple_format(@meeting.agenda) %></p>
+<% end %>
+<p class="muted">The attached invite adds it to your calendar, or use <a href="<%= @google_url %>">Google Calendar</a> or <a href="<%= @outlook_url %>">Outlook</a>.<% unless @for_candidate %> <a href="<%= @candidate_url %>">Open the candidate</a> to read their screening answers first.<% end %></p>

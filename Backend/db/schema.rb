@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_28_150001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_090001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -48,6 +48,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_150001) do
     t.jsonb "star"
     t.index ["question_id"], name: "index_answers_on_question_id"
     t.index ["session_id"], name: "index_answers_on_session_id"
+  end
+
+  create_table "calendar_connections", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "provider", default: "google", null: false
+    t.string "email", null: false
+    t.text "access_token", null: false
+    t.text "refresh_token"
+    t.datetime "expires_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_calendar_connections_on_user_id", unique: true
   end
 
   create_table "candidate_answers", force: :cascade do |t|
@@ -178,6 +190,38 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_150001) do
     t.datetime "updated_at", null: false
     t.index ["updated_at"], name: "index_live_interviews_on_updated_at"
     t.index ["user_id"], name: "index_live_interviews_on_user_id"
+  end
+
+  create_table "meeting_panelists", force: :cascade do |t|
+    t.bigint "meeting_id", null: false
+    t.bigint "user_id", null: false
+    t.index ["meeting_id", "user_id"], name: "index_meeting_panelists_on_meeting_id_and_user_id", unique: true
+    t.index ["meeting_id"], name: "index_meeting_panelists_on_meeting_id"
+    t.index ["user_id"], name: "index_meeting_panelists_on_user_id"
+  end
+
+  create_table "meetings", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "candidate_id", null: false
+    t.bigint "created_by_id"
+    t.string "title", null: false
+    t.datetime "starts_at", null: false
+    t.integer "duration_minutes", default: 45, null: false
+    t.string "time_zone", default: "UTC", null: false
+    t.string "meeting_url"
+    t.string "provider", default: "link", null: false
+    t.string "status", default: "scheduled", null: false
+    t.text "agenda", default: "", null: false
+    t.string "uid", null: false
+    t.integer "sequence", default: 0, null: false
+    t.string "google_event_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_id"], name: "index_meetings_on_candidate_id"
+    t.index ["created_by_id"], name: "index_meetings_on_created_by_id"
+    t.index ["organization_id", "starts_at"], name: "index_meetings_on_organization_id_and_starts_at"
+    t.index ["organization_id"], name: "index_meetings_on_organization_id"
+    t.index ["uid"], name: "index_meetings_on_uid", unique: true
   end
 
   create_table "memberships", force: :cascade do |t|
@@ -421,6 +465,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_150001) do
   add_foreign_key "answer_attempts", "answers", on_delete: :cascade
   add_foreign_key "answers", "interview_sessions", column: "session_id"
   add_foreign_key "answers", "questions"
+  add_foreign_key "calendar_connections", "users", on_delete: :cascade
   add_foreign_key "candidate_answers", "candidates", on_delete: :cascade
   add_foreign_key "candidate_notes", "candidates", on_delete: :cascade
   add_foreign_key "candidate_notes", "users", on_delete: :nullify
@@ -435,6 +480,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_150001) do
   add_foreign_key "jobs", "organizations", on_delete: :cascade
   add_foreign_key "jobs", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "live_interviews", "users", on_delete: :cascade
+  add_foreign_key "meeting_panelists", "meetings", on_delete: :cascade
+  add_foreign_key "meeting_panelists", "users", on_delete: :cascade
+  add_foreign_key "meetings", "candidates"
+  add_foreign_key "meetings", "organizations"
+  add_foreign_key "meetings", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "memberships", "organizations", on_delete: :cascade
   add_foreign_key "memberships", "users", on_delete: :cascade
   add_foreign_key "questions", "domains"

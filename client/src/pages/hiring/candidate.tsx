@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Notes } from "@/components/hiring/notes";
+import { CandidateMeetings } from "@/components/hiring/meetings";
 import { EmailDialog } from "@/components/hiring/email-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, errorMessage } from "@/lib/api";
@@ -405,6 +406,17 @@ export default function CandidatePage() {
         </section>
 
         <div className="space-y-6">
+          {c.status !== "invited" && (
+            <CandidateMeetings
+              candidate={{ id: c.id, name: c.name, jobTitle: c.job.title }}
+              meetings={c.meetings}
+              canSchedule={c.status !== "withdrawn"}
+              onChanged={() => {
+                queryClient.invalidateQueries({ queryKey: key });
+                queryClient.invalidateQueries({ queryKey: ["/api/v1/hiring/overview"] });
+              }}
+            />
+          )}
           <AiSummary candidate={c} onRetry={() => retry.mutate()} retrying={retry.isPending} />
           <Resume candidate={c} onRetry={() => rematch.mutate()} retrying={rematch.isPending} />
           {c.answers.length > 0 && <Scorecard candidate={c} />}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "wouter";
-import { CheckCircle2, FileText, Loader2, Mic, Square, Upload, Volume2 } from "lucide-react";
+import { CalendarClock, CheckCircle2, FileText, Loader2, Mic, Square, Upload, Video, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useRecorder } from "@/hooks/use-recorder";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
-import { formatSeconds, type ApplyState } from "@/lib/hiring";
+import { formatSeconds, meetingTime, PROVIDER_LABELS, type ApplyState } from "@/lib/hiring";
 import { narrate } from "@/lib/narrator";
 
 const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
@@ -341,6 +341,26 @@ export default function ApplyPage() {
           <p className="mt-3 text-muted-foreground">
             Your answers are with {state.company}'s hiring team for {state.jobTitle}. They'll be in touch about next steps.
           </p>
+          {state.upcomingInterview && (
+            <div className="mt-8 rounded-2xl border bg-card p-5" data-testid="card-upcoming-interview">
+              <p className="flex items-center gap-2 text-sm font-medium text-primary">
+                <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                Your next interview
+              </p>
+              <p className="mt-2 text-xl font-semibold">{meetingTime({ startsAt: state.upcomingInterview.startsAt, endsAt: new Date(new Date(state.upcomingInterview.startsAt).getTime() + state.upcomingInterview.durationMinutes * 60000).toISOString() })}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {state.upcomingInterview.durationMinutes} minutes on {PROVIDER_LABELS[state.upcomingInterview.provider]}. The invite is in your email too.
+              </p>
+              {state.upcomingInterview.meetingUrl && (
+                <Button asChild className="mt-4">
+                  <a href={state.upcomingInterview.meetingUrl} target="_blank" rel="noreferrer">
+                    <Video />
+                    Join the interview
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
         </>
       )}
       {state.status === "withdrawn" && (

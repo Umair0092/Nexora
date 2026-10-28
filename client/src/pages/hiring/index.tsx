@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Briefcase, ChevronRight, Loader2, Mail, Plus, Users } from "lucide-react";
+import { UpcomingMeetings } from "@/components/hiring/meetings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -296,6 +297,7 @@ export default function HiringHome() {
         </div>
 
         <div className="space-y-6">
+          {overview && <UpcomingMeetings meetings={overview.upcomingMeetings} />}
           {overview && <Activity items={overview.activity} />}
           <nav aria-label="Hiring settings" className="rounded-2xl border bg-card p-2">
             <Link href="/hiring/team" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-accent/40">

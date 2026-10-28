@@ -20,6 +20,8 @@ import { useToast } from "@/hooks/use-toast";
 import { api, errorMessage, getToken, setToken } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import type { User } from "@/lib/types";
+import { CalendarConnection } from "@/components/calendar-connection";
+import { useOrganization } from "@/lib/hiring";
 
 const MAX_GOAL = 14;
 
@@ -37,6 +39,7 @@ function Section({ id, title, hint, children }: { id: string; title: string; hin
 
 export default function AccountPage() {
   const { user } = useAuth();
+  const { data: org } = useOrganization();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [goal, setGoal] = useState(3);
@@ -177,6 +180,12 @@ export default function AccountPage() {
             />
           </div>
         </Section>
+
+        {org && (
+          <Section id="calendar" title="Calendar" hint="For live interviews with candidates.">
+            <CalendarConnection />
+          </Section>
+        )}
 
         <Section id="data-heading" title="Your data" hint="Take a copy, or remove everything.">
           <div className="rounded-xl border bg-card p-4 sm:p-5">

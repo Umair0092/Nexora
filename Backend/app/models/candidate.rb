@@ -13,6 +13,7 @@ class Candidate < ApplicationRecord
   has_many :scorecards, dependent: :delete_all
   has_many :hiring_events, dependent: :delete_all
   has_many :notes, -> { order(:created_at) }, class_name: "CandidateNote", dependent: :delete_all
+  has_many :meetings, -> { order(:starts_at) }, dependent: :destroy
 
   has_secure_token :access_token, length: 32
   normalizes :email, with: ->(e) { e.strip.downcase }
@@ -63,6 +64,12 @@ class Candidate < ApplicationRecord
       update!(status: "withdrawn", ai_evaluation: nil, ai_score: nil, evaluation_status: nil,
               resume_data: nil, resume_match: nil, resume_score: nil, resume_status: nil)
       organization.log!("candidate_withdrew", candidate: self)
+    end
+    # Tell the panel; a Google event that can't be reached is still cancelled here.
+    meetings.scheduled.each do |meeting|
+      MeetingScheduler.cancel!(meeting, user: nil)
+    rescue GoogleCalendar::Error
+      meeting.update!(status: "cancelled")
     end
   end
 end

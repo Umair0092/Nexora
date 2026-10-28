@@ -63,6 +63,7 @@ module HiringSerializer
       resume: c.resume_data&.except("name"),
       resumeMatch: c.resume_match,
       notes: c.notes.map { |n| note(n, viewer) },
+      meetings: c.meetings.includes(:panelists, :created_by).map { |m| meeting(m) },
       myScorecard: mine && scorecard(mine),
       scorecards: c.scorecards.includes(:user).map { |s| scorecard(s) },
       activity: c.hiring_events.includes(:user).order(created_at: :desc).limit(50).map do |e|
@@ -98,6 +99,17 @@ module HiringSerializer
 
   def scorecard(s)
     { userId: s.user_id, by: display_name(s.user), ratings: s.ratings, notes: s.notes, recommendation: s.recommendation, updatedAt: s.updated_at }
+  end
+
+  def meeting(m)
+    {
+      id: m.id, title: m.title, startsAt: m.starts_at, endsAt: m.ends_at, durationMinutes: m.duration_minutes,
+      timeZone: m.time_zone, meetingUrl: m.meeting_url, provider: m.provider, status: m.status, agenda: m.agenda,
+      inGoogleCalendar: m.google_event_id.present?,
+      createdBy: m.created_by && display_name(m.created_by),
+      panel: m.panelists.map { |u| { id: u.id, name: display_name(u) } },
+      candidate: { id: m.candidate.id, name: m.candidate.name, jobTitle: m.candidate.job.title }
+    }
   end
 
   def display_name(user)

@@ -11,6 +11,7 @@ class User < ApplicationRecord
   has_many :live_interviews, dependent: :delete_all
   has_one :membership, dependent: :destroy
   has_one :organization, through: :membership
+  has_one :calendar_connection, dependent: :destroy
 
   normalizes :email, with: ->(e) { e.strip.downcase }
 
