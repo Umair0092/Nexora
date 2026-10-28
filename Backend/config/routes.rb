@@ -73,6 +73,14 @@ Rails.application.routes.draw do
           post "match"
         end
         resources :notes, only: [ :create, :destroy ], controller: "candidate_notes"
+        resources :meetings, only: [ :create ]
+      end
+      resources :meetings, only: [ :index, :update ] do
+        post "cancel", on: :member
+      end
+      resource :calendar, only: [ :show, :destroy ], controller: "calendar_connections" do
+        post "google", action: :connect
+        get "google/callback", action: :callback
       end
       resources :email_templates, only: [ :index, :create, :update, :destroy ]
 

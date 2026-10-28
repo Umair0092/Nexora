@@ -151,6 +151,12 @@ module Api
         @job.collect_resume && @candidate.status == "in_progress" && @candidate.resume_status.nil? && @candidate.current_position.zero?
       end
 
+      # The next live interview the team booked, so the candidate's link shows it too.
+      def upcoming_interview
+        m = @candidate.meetings.upcoming.first
+        m && { title: m.title, startsAt: m.starts_at, durationMinutes: m.duration_minutes, meetingUrl: m.meeting_url, provider: m.provider }
+      end
+
       def state
         in_progress = @candidate.status == "in_progress"
         {
@@ -167,7 +173,8 @@ module Api
           resumeAdded: @candidate.resume_data.present?,
           currentQuestion: in_progress && !resume_step? ? @candidate.current_question : nil,
           consentedAt: @candidate.consented_at,
-          completedAt: @candidate.completed_at
+          completedAt: @candidate.completed_at,
+          upcomingInterview: upcoming_interview
         }
       end
     end

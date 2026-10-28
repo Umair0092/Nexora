@@ -3,7 +3,7 @@ module Api
     # The hiring home page in one request.
     #
     #   GET /api/v1/hiring/overview
-    #     -> { stats, needsReview[], activity[], columns: { jobId => { column => count } } }
+    #     -> { stats, needsReview[], activity[], columns: { jobId => { column => count } }, upcomingMeetings[] }
     class HiringOverviewController < ApplicationController
       include HiringAccess
 
@@ -32,7 +32,9 @@ module Api
           },
           activity: org.hiring_events.where.not(action: QUIET_ACTIONS).includes(:user, candidate: :job)
                        .order(created_at: :desc).limit(ACTIVITY_LIMIT).map { |e| event(e) },
-          columns: column_counts(candidates)
+          columns: column_counts(candidates),
+          upcomingMeetings: org.meetings.upcoming.where(starts_at: ..14.days.from_now)
+                               .includes(:panelists, :created_by, candidate: :job).limit(5).map { |m| HiringSerializer.meeting(m) }
         }
       end
 

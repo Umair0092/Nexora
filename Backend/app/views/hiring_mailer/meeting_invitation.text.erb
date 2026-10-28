@@ -1,0 +1,25 @@
+<% if @for_candidate -%>
+Hi <%= @candidate.name %>,
+
+<%= @update ? "#{@company} has changed your interview" : "#{@company} would like to meet you" %> for <%= @candidate.job.title %>.
+<% else -%>
+<%= @update ? "This interview has changed" : "You're on the panel for this interview" %>: <%= @candidate.name %>, <%= @candidate.job.title %>.
+<% end -%>
+
+<%= @when %>, <%= @meeting.duration_minutes %> minutes<% if @panel.any? %> with <%= @panel.to_sentence %><% end %>
+<% if @meeting.meeting_url.present? -%>
+
+Join: <%= @meeting.meeting_url %>
+<% end -%>
+<% if @meeting.agenda.present? -%>
+
+<%= @meeting.agenda %>
+<% end -%>
+
+The attached invite adds it to your calendar.
+Google Calendar: <%= @google_url %>
+Outlook: <%= @outlook_url %>
+<% unless @for_candidate -%>
+
+Candidate: <%= @candidate_url %>
+<% end -%>
