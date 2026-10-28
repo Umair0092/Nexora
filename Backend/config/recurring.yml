@@ -18,6 +18,10 @@ production:
     class: PurgeLiveInterviewsJob
     queue: default
     schedule: every 30 minutes
+  apply_retention:
+    class: ApplyRetentionJob
+    queue: default
+    schedule: every day at 3am
   check_notetakers:
     class: NotetakerPollJob
     queue: default

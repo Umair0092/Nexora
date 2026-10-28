@@ -37,6 +37,7 @@ import GoogleCallback from "@/pages/google-callback";
 import AnalyticsPage from "@/pages/hiring/analytics";
 import IntegrationsPage from "@/pages/hiring/integrations";
 import BillingPage from "@/pages/hiring/billing";
+import PrivacyPage from "@/pages/hiring/privacy";
 import CandidatePage from "@/pages/hiring/candidate";
 import ComparePage from "@/pages/hiring/compare";
 import TemplatesPage from "@/pages/hiring/templates";
@@ -166,6 +167,7 @@ function Router() {
         <Route path="/hiring/analytics" component={AnalyticsPage} />
         <Route path="/hiring/integrations" component={IntegrationsPage} />
         <Route path="/hiring/billing" component={BillingPage} />
+        <Route path="/hiring/privacy" component={PrivacyPage} />
         <Route path="/forgot-password">
           <Redirect to="/account" />
         </Route>

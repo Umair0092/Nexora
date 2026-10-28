@@ -11,6 +11,7 @@ module HiringSerializer
       id: org.id,
       name: org.name,
       myRole: membership.role,
+      retentionMonths: org.retention_months,
       members: org.memberships.includes(:user).order(:created_at).map do |m|
         { id: m.id, userId: m.user_id, name: display_name(m.user), email: m.user.email, role: m.role, joinedAt: m.created_at }
       end,

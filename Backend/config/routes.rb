@@ -63,6 +63,7 @@ Rails.application.routes.draw do
       post "team_invitations/accept", to: "team_invitations#accept"
       get "hiring/overview", to: "hiring_overview#show"
       get "hiring/analytics", to: "hiring_analytics#show"
+      get "hiring/activity", to: "hiring_activity#show"
       resource :billing, only: [ :show ], controller: "billing" do
         post "checkout"
         post "portal"
