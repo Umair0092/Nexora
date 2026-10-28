@@ -1,4 +1,12 @@
 ENV["RAILS_ENV"] ||= "test"
+
+# Fixtures empty every table they load, so refuse a DATABASE_URL that points at
+# another environment's database (for example one exported from .env for the dev server).
+if ENV["DATABASE_URL"].present?
+  database = URI(ENV["DATABASE_URL"]).path.delete_prefix("/")
+  abort "DATABASE_URL points at #{database}, not a *_test database. Unset it to run the tests." unless database.end_with?("_test")
+end
+
 require_relative "../config/environment"
 require "rails/test_help"
 require "minitest/mock"
