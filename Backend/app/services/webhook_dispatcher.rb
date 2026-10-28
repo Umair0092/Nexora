@@ -9,7 +9,7 @@ module WebhookDispatcher
 
   def call(hiring_event)
     name = WebhookEndpoint.event_for(hiring_event.action)
-    return unless name
+    return unless name && Plan.for(hiring_event.organization).allows?(:webhooks)
 
     endpoints = hiring_event.organization.webhook_endpoints.listening_to(name).to_a
     return if endpoints.empty?

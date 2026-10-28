@@ -38,6 +38,7 @@ module Api
         return render(json: { error: "This candidate withdrew." }, status: :unprocessable_entity) if candidate.status == "withdrawn"
 
         meeting = current_organization.meetings.new(candidate: candidate, created_by: current_user, **attributes)
+        return if meeting.notetaker && over_plan?(:notetaker)
         meeting.title = "Interview: #{candidate.name}, #{candidate.job.title}" if meeting.title.blank?
         return unless valid_panel?(meeting) && in_future?(meeting)
 
@@ -58,6 +59,7 @@ module Api
         return render(json: { error: "This interview was cancelled." }, status: :unprocessable_entity) unless @meeting.scheduled?
 
         attrs = attributes
+        return if attrs[:notetaker] && !@meeting.notetaker && over_plan?(:notetaker)
         attrs.delete(:time_zone) if attrs[:time_zone].blank?
         attrs.delete(:meeting_url) if @meeting.google_event_id
         attrs[:panelist_ids] = panel_ids if params.key?(:panelistIds)
@@ -82,6 +84,7 @@ module Api
         return render(json: { error: "Add a video link to the interview first." }, status: :unprocessable_entity) if @meeting.meeting_url.blank?
         return render(json: { error: "This interview was cancelled." }, status: :unprocessable_entity) unless @meeting.scheduled?
         return render(json: { error: "The notetaker already has this call." }, status: :conflict) if @meeting.bot_id.present?
+        return if over_plan?(:notetaker)
 
         @meeting.update!(notetaker: true)
         NotetakerJob.perform_now(@meeting.id)

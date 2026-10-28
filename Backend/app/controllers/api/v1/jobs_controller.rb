@@ -30,6 +30,8 @@ module Api
       end
 
       def create
+        return if over_plan?(:open_job)
+
         job = current_organization.jobs.new(job_params.merge(created_by: current_user))
         return errors_of(job) unless job.save
 
@@ -38,6 +40,7 @@ module Api
       end
 
       def update
+        return if !@job.open? && job_params[:status] == "open" && over_plan?(:open_job)
         return errors_of(@job) unless @job.update(job_params)
 
         render json: HiringSerializer.job(@job)
