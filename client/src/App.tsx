@@ -33,6 +33,7 @@ import HiringTeam from "@/pages/hiring/team";
 import JobForm from "@/pages/hiring/job-form";
 import JobPage from "@/pages/hiring/job";
 import MeetingPage from "@/pages/hiring/meeting";
+import AnalyticsPage from "@/pages/hiring/analytics";
 import CandidatePage from "@/pages/hiring/candidate";
 import ComparePage from "@/pages/hiring/compare";
 import TemplatesPage from "@/pages/hiring/templates";
@@ -158,6 +159,7 @@ function Router() {
         <Route path="/hiring/templates" component={TemplatesPage} />
         <Route path="/hiring/candidates/:id" component={CandidatePage} />
         <Route path="/hiring/meetings/:id" component={MeetingPage} />
+        <Route path="/hiring/analytics" component={AnalyticsPage} />
         <Route path="/forgot-password">
           <Redirect to="/account" />
         </Route>
