@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { CalendarClock, CalendarPlus, ExternalLink, Loader2, Video } from "lucide-react";
+import { Bot, CalendarClock, CalendarPlus, ExternalLink, FileText, Loader2, Video } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ScheduleDialog } from "@/components/hiring/schedule-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, errorMessage } from "@/lib/api";
-import { meetingTime, PROVIDER_LABELS, type Meeting } from "@/lib/hiring";
+import { meetingTime, NOTETAKER_LABELS, PROVIDER_LABELS, type Meeting } from "@/lib/hiring";
 import { cn } from "@/lib/utils";
 
 const isPast = (m: Meeting) => new Date(m.endsAt).getTime() < Date.now();
@@ -84,6 +84,9 @@ export function CandidateMeetings({
                   </a>
                 </Button>
               )}
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/hiring/meetings/${m.id}`}>{m.minutesStatus === "done" ? "Minutes" : "Notes"}</Link>
+              </Button>
               <Button size="sm" variant="outline" onClick={() => setEditing(m)}>Change</Button>
               <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setCancelling(m)}>Cancel interview</Button>
             </div>
@@ -97,6 +100,12 @@ export function CandidateMeetings({
             {earlier.map((m) => (
               <li key={m.id} className={cn("rounded-xl bg-muted/50 p-3 text-sm", m.status === "cancelled" && "text-muted-foreground")}>
                 <MeetingSummary meeting={m} compact />
+                {m.status === "scheduled" && (
+                  <Link href={`/hiring/meetings/${m.id}`} className="mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                    <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                    {m.minutesStatus === "done" ? "Read the minutes" : m.hasTranscript ? "See the transcript" : "Add the recording for minutes"}
+                  </Link>
+                )}
               </li>
             ))}
           </ul>
@@ -135,6 +144,13 @@ function MeetingSummary({ meeting: m, compact }: { meeting: Meeting; compact?: b
         {m.panel.length > 0 && `, with ${m.panel.map((p) => p.name).join(", ")}`}
       </p>
       {!compact && m.agenda && <p className="mt-2 whitespace-pre-line text-sm">{m.agenda}</p>}
+      {m.notetakerStatus && m.status === "scheduled" && (
+        <p className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium", m.notetakerStatus === "failed" ? "bg-destructive/10 text-destructive" : "bg-accent text-accent-foreground")}>
+          <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+          {NOTETAKER_LABELS[m.notetakerStatus]}
+        </p>
+      )}
+      {m.minutesSummary && <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{m.minutesSummary}</p>}
     </div>
   );
 }

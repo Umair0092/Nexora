@@ -2,7 +2,7 @@ module Api
   module V1
     # A teammate's Google Calendar, for interviews with Meet links.
     #
-    #   GET    /api/v1/calendar                  -> { available, connected, email }
+    #   GET    /api/v1/calendar                  -> { available, connected, email, notetakerAvailable }
     #   POST   /api/v1/calendar/google           -> { url } to send the browser to
     #   GET    /api/v1/calendar/google/callback  (Google redirects here; back to /account)
     #   DELETE /api/v1/calendar                  revokes access and forgets the tokens
@@ -13,7 +13,8 @@ module Api
 
       def show
         connection = current_user.calendar_connection
-        render json: { available: GoogleCalendar.configured?, connected: connection.present?, email: connection&.email }
+        render json: { available: GoogleCalendar.configured?, connected: connection.present?, email: connection&.email,
+                       notetakerAvailable: MeetingBot.configured? }
       end
 
       def connect

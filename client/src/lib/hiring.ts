@@ -64,9 +64,47 @@ export interface Meeting {
   status: "scheduled" | "cancelled";
   agenda: string;
   inGoogleCalendar: boolean;
+  notetaker: boolean;
+  notetakerStatus: NotetakerStatus | null;
+  notetakerError: string | null;
+  hasTranscript: boolean;
+  minutesStatus: "pending" | "done" | "failed" | null;
+  minutesSummary: string | null;
   createdBy: string | null;
   panel: { id: number; name: string }[];
   candidate: { id: number; name: string; jobTitle: string };
+}
+
+export type NotetakerStatus = "scheduled" | "joining" | "waiting_room" | "recording" | "processing" | "done" | "failed";
+
+export const NOTETAKER_LABELS: Record<NotetakerStatus, string> = {
+  scheduled: "Notetaker booked",
+  joining: "Notetaker joining the call",
+  waiting_room: "Notetaker in the waiting room: let it in",
+  recording: "Notetaker recording",
+  processing: "Call ended, preparing the transcript",
+  done: "Transcript ready",
+  failed: "Notetaker couldn't record",
+};
+
+export type Signal = "strong" | "mixed" | "weak" | "not_covered";
+
+export interface Minutes {
+  summary: string;
+  topics: { title: string; notes: string }[];
+  criteria: { criterion: string; signal: Signal; evidence: string }[];
+  candidateQuestions: string[];
+  concerns: string[];
+  followUps: { owner: string; item: string }[];
+}
+
+export interface MeetingDetail extends Meeting {
+  transcript: { speaker: string | null; start: number; text: string }[];
+  transcriptSource: "bot" | "upload" | null;
+  minutes: Minutes | null;
+  minutesAt: string | null;
+  criteria: string[];
+  notetakerAvailable: boolean;
 }
 
 export const PROVIDER_LABELS: Record<MeetingProvider, string> = {
@@ -237,6 +275,9 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   meeting_scheduled: "Scheduled an interview",
   meeting_rescheduled: "Changed an interview",
   meeting_cancelled: "Cancelled an interview",
+  notetaker_sent: "Sent the notetaker",
+  meeting_transcribed: "Interview transcribed",
+  minutes_ready: "Interview minutes ready",
 };
 
 export interface ActivityEvent {
@@ -274,6 +315,8 @@ export function feedSentence(e: ActivityEvent): { before: string; after: string 
     case "email_sent": return { before: `${by} emailed`, after: "" };
     case "meeting_scheduled": return { before: `${by} scheduled an interview with`, after: "" };
     case "meeting_rescheduled": return { before: `${by} changed the interview with`, after: "" };
+    case "minutes_ready": return { before: "Minutes are ready for the interview with", after: "" };
+    case "meeting_transcribed": return { before: "The interview with", after: "was transcribed" };
     case "meeting_cancelled": return { before: `${e.by ?? "The team"} cancelled the interview with`, after: "" };
     default: return { before: e.by ? `${e.by}: ${activityText(e).toLowerCase()}` : activityText(e), after: "" };
   }

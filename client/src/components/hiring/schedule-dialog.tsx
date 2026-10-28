@@ -19,6 +19,7 @@ export interface CalendarStatus {
   available: boolean;
   connected: boolean;
   email: string | null;
+  notetakerAvailable: boolean;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -64,6 +65,7 @@ export function ScheduleDialog({
   const [where, setWhere] = useState<"meet" | "link">("link");
   const [url, setUrl] = useState("");
   const [agenda, setAgenda] = useState("");
+  const [notetaker, setNotetaker] = useState(false);
 
   // Fill the form each time it opens.
   useEffect(() => {
@@ -77,6 +79,7 @@ export function ScheduleDialog({
     setPanel(new Set(meeting ? meeting.panel.map((p) => p.id) : me ? [me] : []));
     setUrl(meeting?.meetingUrl ?? "");
     setAgenda(meeting?.agenda ?? "");
+    setNotetaker(meeting?.notetaker ?? false);
   }, [open, meeting, org, user]);
   useEffect(() => {
     if (open && !meeting) setWhere(canCreateMeet ? "meet" : "link");
@@ -91,6 +94,7 @@ export function ScheduleDialog({
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         panelistIds: Array.from(panel),
         agenda,
+        notetaker: notetaker && !!calendar?.notetakerAvailable,
         ...(meeting?.inGoogleCalendar ? {} : where === "meet" && !meeting ? { createMeet: true } : { meetingUrl: url }),
       };
       return meeting
@@ -219,6 +223,18 @@ export function ScheduleDialog({
               )}
             </fieldset>
           )}
+
+          <label className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm ${calendar?.notetakerAvailable ? "cursor-pointer has-[:checked]:border-primary/60 has-[:checked]:bg-accent/40" : ""}`}>
+            <Checkbox checked={notetaker} onCheckedChange={(v) => setNotetaker(v === true)} disabled={!calendar?.notetakerAvailable} className="mt-0.5" data-testid="checkbox-notetaker" />
+            <span>
+              Send Nexora Notetaker to record and write the minutes
+              <span className="block text-xs text-muted-foreground">
+                {calendar?.notetakerAvailable
+                  ? "It joins at the start time under that name, and the invite tells the candidate the call is recorded."
+                  : "Not set up on this server. After the call you can upload a recording and get the same minutes."}
+              </span>
+            </span>
+          </label>
 
           <div className="space-y-1.5">
             <Label htmlFor="meeting-agenda">Agenda for the invite <span className="font-normal text-muted-foreground">(optional)</span></Label>

@@ -25,6 +25,7 @@ module MeetingScheduler
       raise
     end
     invite(meeting, meeting.attendees) unless meeting.google_event_id
+    book_notetaker(meeting)
     meeting.organization.log!("meeting_scheduled", user: meeting.created_by, candidate: meeting.candidate, meeting_id: meeting.id)
     meeting
   end
@@ -39,6 +40,10 @@ module MeetingScheduler
       meeting.save!
       GoogleCalendar.update_event(google_for(meeting), meeting) if meeting.google_event_id
     end
+    if meeting.saved_change_to_starts_at? || meeting.saved_change_to_meeting_url? || meeting.saved_change_to_notetaker?
+      recall_notetaker(meeting)
+      book_notetaker(meeting)
+    end
     unless meeting.google_event_id
       invite(meeting, meeting.attendees, update: true)
       (before - meeting.attendees).each { |email| HiringMailer.meeting_cancelled(meeting, email).deliver_later }
@@ -50,11 +55,27 @@ module MeetingScheduler
   def cancel!(meeting, user:)
     Meeting.transaction do
       meeting.update!(status: "cancelled", sequence: meeting.sequence + 1)
+      recall_notetaker(meeting)
       GoogleCalendar.cancel_event(google_for(meeting), meeting) if meeting.google_event_id
     end
     meeting.attendees.each { |email| HiringMailer.meeting_cancelled(meeting, email).deliver_later } unless meeting.google_event_id
     meeting.organization.log!("meeting_cancelled", user: user, candidate: meeting.candidate, meeting_id: meeting.id)
     meeting
+  end
+
+  def book_notetaker(meeting)
+    NotetakerJob.perform_later(meeting.id) if meeting.notetaker && MeetingBot.configured?
+  end
+
+  # A booked bot that hasn't joined is called off; the next booking makes a new one.
+  def recall_notetaker(meeting)
+    return if meeting.bot_id.blank? || meeting.notetaker_status.in?(%w[done processing])
+
+    MeetingBot.cancel(meeting.bot_id)
+  rescue MeetingBot::Error => e
+    Rails.logger.warn("Couldn't call off notetaker #{meeting.bot_id}: #{e.message}")
+  ensure
+    meeting.update_columns(bot_id: nil, notetaker_status: nil) if meeting.bot_id.present? && !meeting.notetaker_status.in?(%w[done processing])
   end
 
   def invite(meeting, emails, update: false)

@@ -1,0 +1,6 @@
+<p>The minutes of the interview with <strong><%= @candidate.name %></strong> (<%= @candidate.job.title %>, <%= @when %>) are ready.</p>
+<% if @summary.present? %>
+<p><%= @summary %></p>
+<% end %>
+<p><a href="<%= @url %>" class="button">Read the minutes</a></p>
+<p class="muted">Written by AI from the call's transcript. It reports what was said; the decision is the panel's.</p>

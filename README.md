@@ -20,7 +20,7 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 - **Practise weak answers** — Re-answer any report question and see the new score next to the old one; or see a stronger version of your own answer, and the model answer for quiz questions
 - **Progress chart, streaks and weekly goal** — Scores over time on the dashboard, plus optional email reminders after 3 days without practice
 - **Share links** — A read-only public link to a report that you can turn off at any time
-- **Hiring (for companies)** — Create a company and invite teammates; set up jobs with fixed screening questions (drafted from the job description) and scoring criteria; send candidates a personal link to answer out loud, without an account; review transcripts with an advisory AI summary and score them on team scorecards; move candidates through a pipeline board (To review, Shortlisted, Interviewing, Offer, Hired, Rejected); match optional CVs against the job; compare 2–4 candidates side by side; leave notes that @mention teammates; email candidates in bulk from templates; schedule live interviews with a panel, a Google Meet link from a connected Google Calendar or any video link, and calendar invites that work in Google Calendar, Outlook and Apple Calendar. No camera and no judging of delivery or accent; candidates consent first and can withdraw and delete their answers; every view and decision is logged
+- **Hiring (for companies)** — Create a company and invite teammates; set up jobs with fixed screening questions (drafted from the job description) and scoring criteria; send candidates a personal link to answer out loud, without an account; review transcripts with an advisory AI summary and score them on team scorecards; move candidates through a pipeline board (To review, Shortlisted, Interviewing, Offer, Hired, Rejected); match optional CVs against the job; compare 2–4 candidates side by side; leave notes that @mention teammates; email candidates in bulk from templates; schedule live interviews with a panel, a Google Meet link from a connected Google Calendar or any video link, and calendar invites that work in Google Calendar, Outlook and Apple Calendar; send an AI notetaker into the call (Recall.ai) or upload the recording afterwards, and get interview minutes with evidence for each criterion, follow-ups and a transcript. No camera and no judging of delivery or accent; candidates consent first and can withdraw and delete their answers; every view and decision is logged
 - **Account** — Password reset and email confirmation by email, data export (JSON) and account deletion
 
 ---
@@ -140,7 +140,7 @@ Everything is served from one origin by Rails: `/api/v1/*` is the JSON API (JWT 
 - **Scores come from the server.** Saving an interview scores it in Rails from the stored conversation, so the browser can't submit or edit scores. Retries and rewrites are scored the same way.
 - **Camera video never leaves the device.** MediaPipe runs in the browser; only the summary (attention distribution, hand activity) is sent with the report.
 - **Rate limits:** login, register and password reset per IP; starting interviews, answering, uploads, saving, retrying and rewriting per user.
-- **Uploads:** CVs must be real PDFs (checked by content, max 10 MB); audio max 15 MB. Thruster rejects bodies over 20 MB in Docker.
+- **Uploads:** CVs must be real PDFs (checked by content, max 10 MB); audio max 15 MB. Interview recordings max 25 MB. Thruster rejects bodies over 30 MB in Docker.
 - **Security headers** on every response: CSP (allowing WebAssembly for MediaPipe), `X-Frame-Options: DENY`, nosniff, Referrer-Policy and Permissions-Policy.
 
 Main Rails endpoints:
@@ -161,6 +161,7 @@ Main Rails endpoints:
 | `GET /api/v1/hiring/overview` | Hiring home: counts, review queue, team activity, upcoming interviews |
 | `POST /api/v1/candidates/:id/meetings`, `GET /api/v1/meetings`, `PATCH /api/v1/meetings/:id`, `POST /api/v1/meetings/:id/cancel` | Live interviews: schedule, reschedule and cancel, with calendar invites |
 | `GET/DELETE /api/v1/calendar`, `POST /api/v1/calendar/google` | Connect a teammate's Google Calendar for Meet links |
+| `GET /api/v1/meetings/:id`, `POST /api/v1/meetings/:id/{notetaker,recording,minutes}` | Interview minutes: send the notetaker, upload a recording, write the minutes again |
 | `GET/DELETE /api/v1/apply/:token`, `POST /api/v1/apply/:token/{consent,resume,transcriptions,speech,answers,complete}` | The candidate's interview through their personal link (no account) |
 | `POST /api/v1/speech` | The interviewer's voice: `{ text }` in, WAV out (503 when unavailable, so the browser falls back) |
 | `POST /api/v1/sessions/sync_ai_session` | Save a finished interview from `{ cvSessionId?, quizSessionId?, nonverbalReport }`; Rails scores it and deletes the live interview |

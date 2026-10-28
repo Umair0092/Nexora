@@ -31,8 +31,8 @@ services:
       RAILS_MAX_THREADS: "10"
       # Runs background jobs (reminders, cleanup) inside the web process.
       SOLID_QUEUE_IN_PUMA: "true"
-      # Thruster rejects uploads above 20 MB before they reach Rails.
-      MAX_REQUEST_BODY: "20971520"
+      # Thruster rejects uploads above 30 MB before they reach Rails (interview recordings are up to 25 MB).
+      MAX_REQUEST_BODY: "31457280"
     ports:
       - "5001:80"
     depends_on:

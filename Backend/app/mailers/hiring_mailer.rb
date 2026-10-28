@@ -47,6 +47,15 @@ class HiringMailer < ApplicationMailer
     mail(to: email, subject: "Cancelled: #{meeting.title}, #{@when}", reply_to: meeting.created_by&.email)
   end
 
+  def minutes_ready(meeting, user)
+    @meeting = meeting
+    @candidate = meeting.candidate
+    @summary = meeting.minutes&.dig("summary")
+    @when = HiringMailer.meeting_time(meeting)
+    @url = app_url("/hiring/meetings/#{meeting.id}")
+    mail(to: user.email, subject: "Minutes ready: #{@candidate.name}, #{@candidate.job.title}")
+  end
+
   # 120 -> "2 minutes", 90 -> "90 seconds"
   def self.duration(seconds)
     (seconds % 60).zero? ? ActionController::Base.helpers.pluralize(seconds / 60, "minute") : "#{seconds} seconds"

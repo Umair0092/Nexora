@@ -181,7 +181,7 @@ class MeetingsTest < ActionDispatch::IntegrationTest
   test "connecting Google Calendar checks the signed state and stores encrypted tokens" do
     with_google_configured do
       get "/api/v1/calendar", headers: auth_headers(@owner)
-      assert_equal({ "available" => true, "connected" => false, "email" => nil }, json)
+      assert_equal({ "available" => true, "connected" => false, "email" => nil, "notetakerAvailable" => false }, json)
 
       post "/api/v1/calendar/google", headers: auth_headers(@owner)
       url = URI(json["url"])

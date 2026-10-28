@@ -43,6 +43,9 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      # Meeting notetaker through Recall.ai (optional; see .env.example).
+      - key: RECALL_API_KEY
+        sync: false
       # Render terminates HTTPS in front of the app.
       - key: RAILS_FORCE_SSL
         value: "true"
@@ -55,6 +58,6 @@ services:
       # AI calls wait on the model for up to a minute, so give Puma enough threads.
       - key: RAILS_MAX_THREADS
         value: "10"
-      # Thruster rejects uploads above 20 MB before they reach Rails.
+      # Thruster rejects uploads above 30 MB before they reach Rails (interview recordings are up to 25 MB).
       - key: MAX_REQUEST_BODY
-        value: "20971520"
+        value: "31457280"

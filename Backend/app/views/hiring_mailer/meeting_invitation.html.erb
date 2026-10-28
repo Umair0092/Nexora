@@ -8,6 +8,9 @@
 <% if @meeting.meeting_url.present? %>
 <p><a href="<%= @meeting.meeting_url %>" class="button">Join the meeting</a></p>
 <% end %>
+<% if @meeting.notetaker %>
+<p class="muted"><%= @for_candidate ? "#{@company} uses Nexora's notetaker to record and transcribe interviews, so the panel has accurate notes. It joins the call as \"Nexora Notetaker\". If you'd rather it didn't, reply to this email before the interview." : "Nexora Notetaker will join to record the call and write the minutes." %></p>
+<% end %>
 <% if @meeting.agenda.present? %>
 <p><%= simple_format(@meeting.agenda) %></p>
 <% end %>

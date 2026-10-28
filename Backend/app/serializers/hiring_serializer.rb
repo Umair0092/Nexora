@@ -106,10 +106,20 @@ module HiringSerializer
       id: m.id, title: m.title, startsAt: m.starts_at, endsAt: m.ends_at, durationMinutes: m.duration_minutes,
       timeZone: m.time_zone, meetingUrl: m.meeting_url, provider: m.provider, status: m.status, agenda: m.agenda,
       inGoogleCalendar: m.google_event_id.present?,
+      notetaker: m.notetaker, notetakerStatus: m.notetaker_status, notetakerError: m.notetaker_error,
+      hasTranscript: m.transcript.present?, minutesStatus: m.minutes_status,
+      minutesSummary: m.minutes&.dig("summary"),
       createdBy: m.created_by && display_name(m.created_by),
       panel: m.panelists.map { |u| { id: u.id, name: display_name(u) } },
       candidate: { id: m.candidate.id, name: m.candidate.name, jobTitle: m.candidate.job.title }
     }
+  end
+
+  def meeting_detail(m)
+    meeting(m).merge(
+      transcript: Array(m.transcript), transcriptSource: m.transcript_source, minutes: m.minutes, minutesAt: m.minutes_at,
+      criteria: m.candidate.job.criteria, notetakerAvailable: MeetingBot.configured?
+    )
   end
 
   def display_name(user)

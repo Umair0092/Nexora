@@ -75,8 +75,13 @@ Rails.application.routes.draw do
         resources :notes, only: [ :create, :destroy ], controller: "candidate_notes"
         resources :meetings, only: [ :create ]
       end
-      resources :meetings, only: [ :index, :update ] do
-        post "cancel", on: :member
+      resources :meetings, only: [ :index, :show, :update ] do
+        member do
+          post "cancel"
+          post "notetaker"
+          post "recording"
+          post "minutes"
+        end
       end
       resource :calendar, only: [ :show, :destroy ], controller: "calendar_connections" do
         post "google", action: :connect
