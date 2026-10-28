@@ -63,6 +63,11 @@ Rails.application.routes.draw do
       post "team_invitations/accept", to: "team_invitations#accept"
       get "hiring/overview", to: "hiring_overview#show"
       get "hiring/analytics", to: "hiring_analytics#show"
+      resource :billing, only: [ :show ], controller: "billing" do
+        post "checkout"
+        post "portal"
+        post "webhook"
+      end
       resources :jobs, only: [ :index, :show, :create, :update, :destroy ] do
         post "suggest", on: :collection
         get "compare", on: :member

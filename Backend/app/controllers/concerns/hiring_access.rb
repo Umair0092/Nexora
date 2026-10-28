@@ -29,6 +29,15 @@ module HiringAccess
     current_organization.log!("candidate_viewed", user: current_user, candidate: candidate)
   end
 
+  # Plan limits (only when billing is on). Renders 402 and returns true when blocked.
+  def over_plan?(action)
+    message = Plan.blocked(current_organization, action)
+    return false unless message
+
+    render json: { error: message, upgrade: true }, status: :payment_required
+    true
+  end
+
   def errors_of(record)
     render json: { errors: record.errors.full_messages }, status: :unprocessable_entity
   end

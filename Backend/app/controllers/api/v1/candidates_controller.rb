@@ -24,6 +24,7 @@ module Api
         unless job.open?
           return render json: { error: "This job is closed. Reopen it to invite candidates." }, status: :unprocessable_entity
         end
+        return if over_plan?(:invite)
 
         candidate = job.candidates.new(name: params[:name].to_s.strip, email: params[:email].to_s, invited_by: current_user)
         return errors_of(candidate) unless candidate.save

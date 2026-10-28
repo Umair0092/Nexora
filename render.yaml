@@ -46,6 +46,13 @@ services:
       # Meeting notetaker through Recall.ai (optional; see .env.example).
       - key: RECALL_API_KEY
         sync: false
+      # Billing through Stripe (optional; see .env.example).
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRICE_TEAM
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       # Render terminates HTTPS in front of the app.
       - key: RAILS_FORCE_SSL
         value: "true"

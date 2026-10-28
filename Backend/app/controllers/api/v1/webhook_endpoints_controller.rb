@@ -22,6 +22,8 @@ module Api
       end
 
       def create
+        return if over_plan?(:webhooks)
+
         endpoint = current_organization.webhook_endpoints.new(url: params[:url].to_s.strip, events: Array(params[:events]).map(&:to_s))
         return errors_of(endpoint) unless endpoint.save
 

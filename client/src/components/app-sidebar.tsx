@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, Mic, History, UserRound, Settings, LogOut, Briefcase, Users, Mail, BarChart3, Plug, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Mic, History, UserRound, Settings, LogOut, Briefcase, Users, Mail, BarChart3, Plug, CreditCard, type LucideIcon } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { displayName } from "@/lib/types";
 import { useOrganization } from "@/lib/hiring";
@@ -32,6 +32,7 @@ const hiringItems: Item[] = [
   { title: "Team", url: "/hiring/team", icon: Users, testId: "hiring-team" },
   { title: "Email templates", url: "/hiring/templates", icon: Mail, testId: "hiring-templates" },
   { title: "Integrations", url: "/hiring/integrations", icon: Plug, testId: "hiring-integrations" },
+  { title: "Plan and billing", url: "/hiring/billing", icon: CreditCard, testId: "hiring-billing" },
 ];
 
 const practiceItems: Item[] = [
@@ -45,7 +46,7 @@ const accountItems: Item[] = [
   { title: "Account", url: "/account", icon: Settings, testId: "account" },
 ];
 
-const OWN_HIRING_PAGES = ["/hiring/team", "/hiring/templates", "/hiring/analytics", "/hiring/integrations"];
+const OWN_HIRING_PAGES = ["/hiring/team", "/hiring/templates", "/hiring/analytics", "/hiring/integrations", "/hiring/billing"];
 
 function isActive(item: Item, location: string) {
   if (location === item.url) return true;
