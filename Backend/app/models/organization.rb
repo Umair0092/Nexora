@@ -8,6 +8,9 @@ class Organization < ApplicationRecord
   has_many :hiring_events, dependent: :delete_all
   has_many :meetings, dependent: :destroy
   has_many :webhook_endpoints, dependent: :destroy
+
+  RETENTION_MONTHS = [ 6, 12, 24 ].freeze
+  validates :retention_months, inclusion: { in: RETENTION_MONTHS }, allow_nil: true
   has_many :email_templates, -> { order(:name) }, dependent: :delete_all
 
   after_create :add_default_email_templates

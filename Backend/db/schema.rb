@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_180001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_190001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -105,6 +105,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_180001) do
     t.string "resume_status"
     t.jsonb "resume_match"
     t.float "resume_score"
+    t.datetime "anonymized_at"
     t.index ["access_token"], name: "index_candidates_on_access_token", unique: true
     t.index ["invited_by_id"], name: "index_candidates_on_invited_by_id"
     t.index ["job_id", "email"], name: "index_candidates_on_job_id_and_email", unique: true
@@ -141,6 +142,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_180001) do
     t.jsonb "details", default: {}, null: false
     t.datetime "created_at", null: false
     t.index ["candidate_id"], name: "index_hiring_events_on_candidate_id"
+    t.index ["organization_id", "action"], name: "index_hiring_events_on_organization_id_and_action"
     t.index ["organization_id", "created_at"], name: "index_hiring_events_on_organization_id_and_created_at"
     t.index ["organization_id"], name: "index_hiring_events_on_organization_id"
     t.index ["user_id"], name: "index_hiring_events_on_user_id"
@@ -253,6 +255,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_180001) do
     t.string "stripe_customer_id"
     t.string "stripe_subscription_id"
     t.datetime "current_period_end"
+    t.integer "retention_months"
     t.index ["stripe_customer_id"], name: "index_organizations_on_stripe_customer_id", unique: true
     t.index ["stripe_subscription_id"], name: "index_organizations_on_stripe_subscription_id", unique: true
   end

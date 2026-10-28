@@ -58,6 +58,23 @@ class Candidate < ApplicationRecord
   end
 
   # The candidate asked to leave: their answers, CV and the AI summaries are deleted.
+  # Removes everything that identifies the candidate but keeps the row, so the
+  # pipeline numbers still add up: answers, CV, notes, scorecards and interview
+  # transcripts go; name and email become placeholders; their link stops working.
+  def anonymize!
+    transaction do
+      answers.delete_all
+      scorecards.delete_all
+      notes.delete_all
+      meetings.update_all(transcript: nil, transcript_source: nil, minutes: nil, minutes_status: nil, agenda: "", title: "Interview")
+      # Event details can hold names or email subjects; stage moves keep only from/to.
+      hiring_events.where.not(action: "stage_changed").update_all(details: {})
+      update!(name: "Deleted candidate", email: "deleted-#{id}@deleted.invalid", ai_evaluation: nil, resume_data: nil,
+              resume_match: nil, anonymized_at: Time.current)
+      regenerate_access_token
+    end
+  end
+
   def withdraw!
     transaction do
       answers.delete_all

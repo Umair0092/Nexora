@@ -37,7 +37,12 @@ module Api
       end
 
       def update
-        return errors_of(current_organization) unless current_organization.update(name: params[:name].to_s.strip)
+        attrs = {}
+        attrs[:name] = params[:name].to_s.strip if params.key?(:name)
+        attrs[:retention_months] = params[:retentionMonths].presence&.to_i if params.key?(:retentionMonths)
+        return errors_of(current_organization) unless current_organization.update(attrs)
+
+        current_organization.log!("retention_changed", user: current_user, months: current_organization.retention_months) if attrs.key?(:retention_months)
 
         render json: HiringSerializer.organization(current_organization, @membership)
       end

@@ -13,6 +13,7 @@ export interface Organization {
   id: number;
   name: string;
   myRole: MemberRole;
+  retentionMonths: number | null;
   members: { id: number; userId: number; name: string; email: string; role: MemberRole; joinedAt: string }[];
   invitations: { id: number; email: string; role: MemberRole; invitedAt: string }[];
 }
@@ -278,6 +279,20 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   notetaker_sent: "Sent the notetaker",
   meeting_transcribed: "Interview transcribed",
   minutes_ready: "Interview minutes ready",
+  job_created: "Created a job",
+  job_deleted: "Deleted a job",
+  candidate_deleted: "Deleted a candidate",
+  company_created: "Created the company",
+  member_invited: "Invited a teammate",
+  member_joined: "Joined the team",
+  member_removed: "Removed a teammate",
+  candidates_exported: "Exported candidates",
+  audit_log_exported: "Exported the activity log",
+  webhook_added: "Added a webhook",
+  webhook_removed: "Removed a webhook",
+  plan_changed: "Plan changed",
+  retention_changed: "Changed how long data is kept",
+  retention_applied: "Old candidate data deleted",
 };
 
 export interface ActivityEvent {
