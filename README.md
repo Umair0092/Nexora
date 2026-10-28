@@ -99,6 +99,8 @@ cp .env.example .env             # set GROQ_API_KEY; DATABASE_URL can point at y
 bin/dev                          # Rails on :3000, Vite on :5173 -> open http://127.0.0.1:5173
 ```
 
+**Demo data:** `DEMO_EMAIL=you@example.com DEMO_PASSWORD=... bin/rails demo:seed` (in `Backend/`) creates a company called Northwind Labs owned by that account. It has three jobs and 15 candidates at every stage, with scorecards, CV matches, notes and six weeks of activity. Nothing calls the AI service, and running it again rebuilds the company.
+
 `bin/dev` loads `.env`, runs Rails and the Vite dev server (hot reload), and Vite forwards `/api` to Rails. Use `RAILS_PORT=3100 VITE_PORT=5180 bin/dev` if those ports are taken. Never commit real keys: `.env*` files are git-ignored; only `.env.example` is tracked.
 
 **Email** (password resets, confirmation links, reminders): set `SMTP_ADDRESS`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `MAIL_FROM` for any SMTP provider (Brevo and Resend have free tiers), and `APP_URL` to the address people open the app at. Without SMTP, emails are written to `Backend/tmp/mails/<address>` and their links are logged, so resets still work locally.
@@ -112,6 +114,8 @@ npm run check                    # TypeScript
 npm run build                    # client build (into Backend/public)
 cd Backend && bin/rails test     # Rails, including all AI code with the model stubbed (needs Postgres)
 ```
+
+The tests load fixtures, which empty every table, so they stop if `DATABASE_URL` points anywhere but a `*_test` database. If your shell has `.env` loaded for the dev server, run `env -u DATABASE_URL bin/rails test`.
 
 CI runs both on every push and pull request, plus RuboCop, Brakeman and bundler-audit.
 
