@@ -83,7 +83,7 @@ export interface CandidateDetail extends CandidateRow {
   notes: Note[];
   myScorecard: Scorecard | null;
   scorecards: Scorecard[];
-  activity: { action: string; by: string | null; at: string; details: Record<string, unknown> }[];
+  activity: ActivityEvent[];
 }
 
 export interface Note {
@@ -197,6 +197,62 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   email_sent: "Emailed",
   resume_added: "Added a CV",
 };
+
+export interface ActivityEvent {
+  action: string;
+  by: string | null;
+  at: string;
+  details: Record<string, unknown>;
+}
+
+/** One line of the activity log, without who did it. */
+export function activityText(e: ActivityEvent) {
+  if (e.action === "stage_changed") return `Moved to ${COLUMN_LABELS[((e.details.to as Stage | null) ?? "review") as Column]}`;
+  if (e.action === "email_sent" && typeof e.details.subject === "string") return `Emailed "${e.details.subject}"`;
+  return ACTIVITY_LABELS[e.action] ?? e.action.replace(/_/g, " ");
+}
+
+/**
+ * An activity event as a sentence around the candidate's name, for feeds that
+ * mix candidates: ["Riya Shah moved", "to Offer"] reads "Riya Shah moved Omar Farooq to Offer".
+ * Events the candidate did themselves start with their name, so `before` is empty.
+ */
+export function feedSentence(e: ActivityEvent): { before: string; after: string } {
+  const by = e.by ?? "Someone";
+  const to = COLUMN_LABELS[((e.details.to as Stage | null) ?? "review") as Column];
+  switch (e.action) {
+    case "candidate_invited": return { before: `${by} invited`, after: "" };
+    case "invitation_resent": return { before: `${by} sent the invitation again to`, after: "" };
+    case "candidate_consented": return { before: "", after: "started the interview" };
+    case "candidate_completed": return { before: "", after: "submitted the interview" };
+    case "candidate_withdrew": return { before: "", after: "withdrew and their answers were deleted" };
+    case "resume_added": return { before: "", after: "added a CV" };
+    case "scorecard_saved": return { before: `${by} scored`, after: "" };
+    case "stage_changed": return { before: `${by} moved`, after: `to ${to}` };
+    case "note_added": return { before: `${by} added a note on`, after: "" };
+    case "email_sent": return { before: `${by} emailed`, after: "" };
+    default: return { before: e.by ? `${e.by}: ${activityText(e).toLowerCase()}` : activityText(e), after: "" };
+  }
+}
+
+/** "just now", "5 minutes ago", "3 days ago"; older than a month shows the date. */
+export function timeAgo(iso: string, now = Date.now()) {
+  const minutes = Math.round((now - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  if (days < 31) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+export interface HiringOverview {
+  stats: { openJobs: number; toReview: number; interviewing: number; offers: number; hiredRecently: number };
+  needsReview: { id: number; name: string; jobId: number; jobTitle: string; aiScore: number | null; resumeScore: number | null; completedAt: string }[];
+  activity: (ActivityEvent & { id: number; candidate: { id: number; name: string; jobTitle: string } | null })[];
+  columns: Record<string, Partial<Record<Column, number>>>;
+}
 
 // Placeholders a template or email can use, with what each becomes.
 export const PLACEHOLDERS: [string, string][] = [

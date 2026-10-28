@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { GripVertical, MessageSquare, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -106,6 +106,17 @@ export function PipelineBoard({
   onMove: (candidate: CandidateRow, stage: Stage | null) => void;
 }) {
   const [over, setOver] = useState<Column | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  const measure = () => {
+    const el = scroller.current;
+    if (el) setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  };
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [candidates.length]);
 
   const drop = (col: Column, id: number) => {
     const c = candidates.find((x) => x.id === id);
@@ -117,42 +128,48 @@ export function PipelineBoard({
   };
 
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-      <div className="flex min-w-max gap-3">
-        {BOARD_COLUMNS.map((col) => {
-          const cards = candidates.filter((c) => c.column === col);
-          return (
-            <section
-              key={col}
-              aria-label={COLUMN_LABELS[col]}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setOver(col);
-              }}
-              onDragLeave={() => setOver((o) => (o === col ? null : o))}
-              onDrop={(e) => {
-                e.preventDefault();
-                setOver(null);
-                drop(col, Number(e.dataTransfer.getData("text/candidate")));
-              }}
-              className={cn(
-                "flex w-60 flex-col rounded-2xl bg-muted/50 p-2 transition-colors",
-                over === col && "bg-primary/10 ring-2 ring-primary/40",
-              )}
-            >
-              <h3 className="flex items-center justify-between px-1.5 pb-2 pt-1 text-sm font-semibold">
-                {COLUMN_LABELS[col]}
-                <span className="rounded-full bg-background px-2 text-xs font-medium tabular-nums text-muted-foreground">{cards.length}</span>
-              </h3>
-              <ul className="flex min-h-24 flex-col gap-2">
-                {cards.map((c) => (
-                  <Card key={c.id} c={c} selected={selected.has(c.id)} onToggle={() => onToggle(c.id)} onMove={(stage) => onMove(c, stage)} />
-                ))}
-              </ul>
-            </section>
-          );
-        })}
+    <div className="relative">
+      <div ref={scroller} onScroll={measure} className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+        <div className="flex min-w-max gap-3">
+          {BOARD_COLUMNS.map((col) => {
+            const cards = candidates.filter((c) => c.column === col);
+            return (
+              <section
+                key={col}
+                aria-label={COLUMN_LABELS[col]}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOver(col);
+                }}
+                onDragLeave={() => setOver((o) => (o === col ? null : o))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setOver(null);
+                  drop(col, Number(e.dataTransfer.getData("text/candidate")));
+                }}
+                className={cn(
+                  "flex w-56 flex-col rounded-2xl bg-muted/50 p-2 transition-colors",
+                  over === col && "bg-primary/10 ring-2 ring-primary/40",
+                )}
+              >
+                <h3 className="flex items-center justify-between px-1.5 pb-2 pt-1 text-sm font-semibold">
+                  {COLUMN_LABELS[col]}
+                  <span className="rounded-full bg-background px-2 text-xs font-medium tabular-nums text-muted-foreground">{cards.length}</span>
+                </h3>
+                <ul className="flex min-h-24 flex-col gap-2">
+                  {cards.map((c) => (
+                    <Card key={c.id} c={c} selected={selected.has(c.id)} onToggle={() => onToggle(c.id)} onMove={(stage) => onMove(c, stage)} />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       </div>
+      {/* Says there's more board to the right; hidden once you've scrolled to the end. */}
+      {more && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-16 bg-gradient-to-l from-background to-transparent sm:block" aria-hidden="true" />
+      )}
     </div>
   );
 }

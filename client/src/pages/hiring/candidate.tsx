@@ -18,6 +18,7 @@ import {
   COLUMN_LABELS,
   RECOMMENDATION_LABELS,
   STATUS_LABELS,
+  activityText,
   stageFor,
   useOrganization,
   type CandidateDetail,
@@ -180,10 +181,17 @@ function AiSummary({ candidate, onRetry, retrying }: { candidate: CandidateDetai
   );
 }
 
-function activityText(e: CandidateDetail["activity"][number]) {
-  if (e.action === "stage_changed") return `Moved to ${COLUMN_LABELS[((e.details.to as Stage | null) ?? "review") as Column]}`;
-  if (e.action === "email_sent" && typeof e.details.subject === "string") return `Emailed "${e.details.subject}"`;
-  return ACTIVITY_LABELS[e.action] ?? e.action;
+function Glance({ label, value, suffix, hint }: { label: string; value: string | null; suffix?: string; hint?: string }) {
+  return (
+    <div className="bg-card px-4 py-3.5">
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-display text-2xl font-bold tabular-nums">
+        {value ?? <span className="text-muted-foreground">–</span>}
+        {value != null && suffix && <span className="ml-0.5 text-sm font-medium text-muted-foreground">{suffix}</span>}
+      </dd>
+      {hint && <dd className="truncate text-xs text-muted-foreground">{hint}</dd>}
+    </div>
+  );
 }
 
 function Resume({ candidate, onRetry, retrying }: { candidate: CandidateDetail; onRetry: () => void; retrying: boolean }) {
@@ -359,6 +367,15 @@ export default function CandidatePage() {
           </div>
         )}
       </div>
+
+      {c.status === "completed" && (
+        <dl className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-4" aria-label="Scores at a glance">
+          <Glance label="AI summary" value={c.aiScore != null ? `${Math.round(c.aiScore)}` : null} suffix="/100" hint="Advisory" />
+          <Glance label="CV match" value={c.resumeScore != null ? `${Math.round(c.resumeScore)}` : null} suffix="%" hint={c.resumeStatus === "skipped" ? "No CV added" : "Advisory"} />
+          <Glance label="Team average" value={c.scorecardAverage != null ? c.scorecardAverage.toFixed(1) : null} suffix="/5" hint={`${c.scorecardCount} scorecard${c.scorecardCount === 1 ? "" : "s"}`} />
+          <Glance label="Answers" value={`${c.answers.length}`} hint={`Finished ${c.completedAt ? formatDate(c.completedAt) : ""}`} />
+        </dl>
+      )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <section aria-labelledby="answers-heading" className="space-y-4">

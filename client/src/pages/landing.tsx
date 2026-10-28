@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Brand } from "@/components/brand";
 import { ScoreDial } from "@/components/score-dial";
-import { FileText, Code, Layers, Users, Eye, Hand, ShieldCheck } from "lucide-react";
+import { FileText, Code, Layers, Users, Eye, Hand, ShieldCheck, ClipboardList, Kanban, Scale } from "lucide-react";
 
 // The hero cycles through the kind of questions Nexora actually asks: CV follow-ups first.
 const CUE_QUESTIONS = [
@@ -39,6 +39,46 @@ const formats = [
     length: "5 questions",
   },
 ];
+
+// A still of the hiring board, drawn rather than screenshotted so it follows the theme.
+const PREVIEW_COLUMNS = [
+  { title: "To review", people: [["Amara Nwosu", 72, 75], ["Sofia Marquez", 64, 70]] },
+  { title: "Shortlisted", people: [["Kenji Watanabe", 77, 77]] },
+  { title: "Interviewing", people: [["Lena Ortiz", 81, 78]] },
+  { title: "Offer", people: [["Omar Farooq", 86, 80]] },
+] as const;
+
+function BoardPreview() {
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-background p-4 shadow-lg sm:p-5" aria-hidden="true">
+      <div className="flex items-center justify-between">
+        <p className="font-display text-lg font-bold">Backend Engineer</p>
+        <span className="rounded-full bg-success/15 px-2.5 py-0.5 text-xs font-medium text-success">Open</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {PREVIEW_COLUMNS.map((col) => (
+          <div key={col.title} className="rounded-xl bg-muted/60 p-2.5">
+            <p className="flex justify-between text-xs font-semibold">
+              {col.title}
+              <span className="text-muted-foreground">{col.people.length}</span>
+            </p>
+            <div className="mt-2 space-y-2">
+              {col.people.map(([name, ai, cv]) => (
+                <div key={name} className="rounded-lg border bg-card p-2.5">
+                  <p className="truncate text-sm font-medium">{name}</p>
+                  <p className="mt-1 flex gap-2 text-[11px] text-muted-foreground tabular-nums">
+                    <span>AI <b className="font-semibold text-foreground">{ai}</b></span>
+                    <span>CV <b className="font-semibold text-foreground">{cv}%</b></span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function CueCard() {
   const [index, setIndex] = useState(0);
@@ -93,6 +133,7 @@ export default function Landing() {
             <a href="#formats" className="text-muted-foreground transition-colors hover:text-foreground">Formats</a>
             <a href="#report" className="text-muted-foreground transition-colors hover:text-foreground">The report</a>
             <a href="#how" className="text-muted-foreground transition-colors hover:text-foreground">How it works</a>
+            <a href="#teams" className="text-muted-foreground transition-colors hover:text-foreground">For hiring teams</a>
           </nav>
           <div className="flex items-center gap-1 sm:gap-2">
             <ThemeToggle />
@@ -219,7 +260,39 @@ export default function Landing() {
           </div>
         </section>
 
-        <section className="border-t">
+        <section id="teams" className="border-t">
+          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-[0.85fr_1.15fr]">
+            <div>
+              <h2 className="text-3xl font-bold sm:text-4xl">Hiring? Use the same interviewer to screen candidates</h2>
+              <p className="mt-4 text-muted-foreground">
+                Write a job once and send every candidate the same spoken questions. Your team reads the answers, scores them against
+                the job's criteria and moves people through the pipeline together.
+              </p>
+              <ul className="mt-6 space-y-3 text-sm">
+                {[
+                  [ClipboardList, "Questions and scoring criteria drafted from your job description"],
+                  [Kanban, "A pipeline board with scorecards, notes and @mentions"],
+                  [Scale, "Side-by-side comparison on the same questions"],
+                  [ShieldCheck, "No camera in hiring mode. The AI summary is advisory and every decision is logged"],
+                ].map(([Icon, text]) => {
+                  const I = Icon as typeof Kanban;
+                  return (
+                    <li key={text as string} className="flex gap-3">
+                      <I className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                      <span>{text as string}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <Button asChild size="lg" variant="outline" className="mt-8" data-testid="button-cta-teams">
+                <Link href="/auth?mode=register&next=/hiring">Set up your hiring team</Link>
+              </Button>
+            </div>
+            <BoardPreview />
+          </div>
+        </section>
+
+        <section className="border-t bg-card">
           <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-16 sm:px-6 md:flex-row md:items-center md:justify-between md:py-20">
             <h2 className="max-w-xl text-3xl font-bold sm:text-4xl">Your next interview is a rehearsal away.</h2>
             <Button asChild size="lg" className="h-12 px-6 text-base" data-testid="button-cta-final">
