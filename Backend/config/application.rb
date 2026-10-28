@@ -33,5 +33,8 @@ module Nexora
     # Rails also serves the React app from public/, so every response gets
     # the security headers the old Express gateway used to add.
     config.middleware.insert 0, SecurityHeaders
+    # API-only apps leave cookies out; Google sign-in uses one short-lived cookie
+    # to tie the callback to the browser that started it.
+    config.middleware.use ActionDispatch::Cookies
   end
 end

@@ -7,6 +7,7 @@ class Organization < ApplicationRecord
   has_many :candidates, through: :jobs
   has_many :hiring_events, dependent: :delete_all
   has_many :meetings, dependent: :destroy
+  has_many :webhook_endpoints, dependent: :destroy
   has_many :email_templates, -> { order(:name) }, dependent: :delete_all
 
   after_create :add_default_email_templates
@@ -15,7 +16,9 @@ class Organization < ApplicationRecord
 
   # Appends to the audit log. `details` must not contain answers or personal data.
   def log!(action, user: nil, candidate: nil, **details)
-    hiring_events.create!(action: action, user: user, candidate: candidate, details: details)
+    event = hiring_events.create!(action: action, user: user, candidate: candidate, details: details)
+    WebhookDispatcher.call(event)
+    event
   end
 
   # Companies created before templates existed get the defaults on first use.

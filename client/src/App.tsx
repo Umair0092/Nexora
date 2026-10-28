@@ -33,7 +33,9 @@ import HiringTeam from "@/pages/hiring/team";
 import JobForm from "@/pages/hiring/job-form";
 import JobPage from "@/pages/hiring/job";
 import MeetingPage from "@/pages/hiring/meeting";
+import GoogleCallback from "@/pages/google-callback";
 import AnalyticsPage from "@/pages/hiring/analytics";
+import IntegrationsPage from "@/pages/hiring/integrations";
 import CandidatePage from "@/pages/hiring/candidate";
 import ComparePage from "@/pages/hiring/compare";
 import TemplatesPage from "@/pages/hiring/templates";
@@ -84,6 +86,7 @@ const PUBLIC_ROUTES: [string, () => JSX.Element | null][] = [
   ["/unsubscribe", Unsubscribe],
   ["/apply/:token", ApplyPage],
   ["/join", JoinPage],
+  ["/auth/google", GoogleCallback],
 ];
 
 // After signing in, go back to where a link sent you (/auth?next=/join?token=...).
@@ -160,6 +163,7 @@ function Router() {
         <Route path="/hiring/candidates/:id" component={CandidatePage} />
         <Route path="/hiring/meetings/:id" component={MeetingPage} />
         <Route path="/hiring/analytics" component={AnalyticsPage} />
+        <Route path="/hiring/integrations" component={IntegrationsPage} />
         <Route path="/forgot-password">
           <Redirect to="/account" />
         </Route>
