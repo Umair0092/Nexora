@@ -52,7 +52,8 @@ module Api
         attrs.delete(:meeting_url) if @meeting.google_event_id
         attrs[:panelist_ids] = panel_ids if params.key?(:panelistIds)
         @meeting.assign_attributes(attrs.except(:panelist_ids))
-        return unless valid_panel?(@meeting, attrs[:panelist_ids]) && in_future?(@meeting)
+        return if attrs.key?(:panelist_ids) && !valid_panel?(@meeting, attrs[:panelist_ids])
+        return unless in_future?(@meeting)
 
         MeetingScheduler.reschedule!(@meeting, user: current_user, **attrs)
         render json: HiringSerializer.meeting(@meeting.reload)

@@ -99,6 +99,15 @@ class MeetingsTest < ActionDispatch::IntegrationTest
     assert_includes ics(cancels.first), "METHOD:CANCEL"
   end
 
+  test "changing only the time keeps the panel" do
+    schedule(panelistIds: [ @owner.id, @riya.id ])
+    meeting = Meeting.last
+    patch "/api/v1/meetings/#{meeting.id}", params: { startsAt: (@start + 2.hours).iso8601 }, headers: auth_headers(@riya), as: :json
+    assert_response :ok
+    assert_equal [ @owner.id, @riya.id ].sort, meeting.reload.panelist_ids.sort
+    assert_equal (@start + 2.hours).to_i, meeting.starts_at.to_i
+  end
+
   test "cancelling tells everyone and the candidate's link stops showing it" do
     schedule
     meeting = Meeting.last
