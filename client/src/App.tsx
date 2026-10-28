@@ -14,6 +14,7 @@ import AuthPage from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
+import { useOrganization } from "@/lib/hiring";
 import InterviewSetup from "@/pages/interview-setup";
 import InterviewSession from "@/pages/interview-session";
 import PerformanceReport from "@/pages/performance-report";
@@ -55,7 +56,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-40 flex h-14 print:hidden items-center justify-between gap-4 border-b bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-4">
             <div className="flex items-center gap-2">
               <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle navigation" />
-              <Link href="/dashboard" className="md:hidden" aria-label="Nexora home">
+              <Link href="/" className="md:hidden" aria-label="Nexora home">
                 <BrandMark className="h-7 w-7" />
               </Link>
             </div>
@@ -86,8 +87,15 @@ const PUBLIC_ROUTES: [string, () => JSX.Element | null][] = [
 // After signing in, go back to where a link sent you (/auth?next=/join?token=...).
 function AfterSignIn() {
   const next = new URLSearchParams(window.location.search).get("next");
-  const safe = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  const safe = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
   return <Redirect to={safe} />;
+}
+
+// People on a hiring team start on Hiring; everyone else on their practice overview.
+function Home() {
+  const { data: org, isLoading } = useOrganization();
+  if (isLoading) return null;
+  return org ? <Redirect to="/hiring" replace /> : <Dashboard />;
 }
 
 function Router() {
@@ -131,7 +139,7 @@ function Router() {
   return (
     <AuthenticatedLayout>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={Home} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/auth" component={AfterSignIn} />
         <Route path="/interview/setup" component={InterviewSetup} />

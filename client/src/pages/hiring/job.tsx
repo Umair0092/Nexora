@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PipelineBoard } from "@/components/hiring/pipeline-board";
 import { EmailDialog } from "@/components/hiring/email-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,6 +84,7 @@ export default function JobPage() {
   const [sort, setSort] = useState<Sort>("newest");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [emailing, setEmailing] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const { data: org } = useOrganization();
 
   const key = ["/api/v1/jobs", id];
@@ -99,6 +101,7 @@ export default function JobPage() {
       toast({ title: "Invitation sent", description: `${c.name} will get an email with their interview link.` });
       setName("");
       setEmail("");
+      setInviting(false);
       refresh();
     },
     onError: onError("Couldn't invite the candidate"),
@@ -190,6 +193,12 @@ export default function JobPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {open && (
+            <Button onClick={() => setInviting(true)} data-testid="button-open-invite">
+              <UserPlus />
+              Invite candidate
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setStatus.mutate(open ? "closed" : "open")} disabled={setStatus.isPending}>
             {open ? "Close job" : "Reopen job"}
           </Button>
@@ -205,37 +214,45 @@ export default function JobPage() {
         </div>
       </div>
 
-      {open ? (
-        <form
-          className="mt-8 rounded-2xl border bg-card p-5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            invite.mutate();
-          }}
-        >
-          <p className="text-base font-semibold">Invite a candidate</p>
-          <p className="mt-1 text-sm text-muted-foreground">They get an email with a personal link. No account needed.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+      {!open && (
+        <p className="mt-6 rounded-xl bg-muted p-4 text-sm">This job is closed: candidates who haven't started can't begin. Reopen it to invite more.</p>
+      )}
+
+      <Dialog open={inviting} onOpenChange={setInviting}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite a candidate</DialogTitle>
+            <DialogDescription>They get an email with a personal link to the {job.title} interview. No account needed.</DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              invite.mutate();
+            }}
+          >
             <div className="space-y-1.5">
               <Label htmlFor="candidate-name">Name</Label>
-              <Input id="candidate-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} />
+              <Input id="candidate-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} autoComplete="off" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="candidate-email">Email</Label>
-              <Input id="candidate-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input id="candidate-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="off" />
             </div>
-            <Button type="submit" disabled={!name.trim() || !email || invite.isPending} data-testid="button-invite-candidate">
-              {invite.isPending ? <Loader2 className="animate-spin" /> : <UserPlus />}
-              Invite
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <p className="mt-8 rounded-xl bg-muted p-4 text-sm">This job is closed: candidates who haven't started can't begin. Reopen it to invite more.</p>
-      )}
+            <DialogFooter>
+              <Button type="submit" disabled={!name.trim() || !email || invite.isPending} data-testid="button-invite-candidate">
+                {invite.isPending ? <Loader2 className="animate-spin" /> : <UserPlus />}
+                Send invitation
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-      <div className="mt-10 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Candidates</h2>
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">
+          Candidates <span className="text-base font-normal text-muted-foreground tabular-nums">{job.candidates.length}</span>
+        </h2>
         {job.candidates.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             {view === "list" && (
@@ -263,7 +280,16 @@ export default function JobPage() {
       </div>
 
       {job.candidates.length === 0 ? (
-        <p className="mt-3 text-muted-foreground">Nobody invited yet.</p>
+        <div className="mt-4 rounded-2xl border border-dashed p-8 text-center">
+          <p className="font-semibold">Nobody invited yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">Invite candidates by email. Each gets a personal link to answer these questions out loud.</p>
+          {open && (
+            <Button className="mt-5" onClick={() => setInviting(true)}>
+              <UserPlus />
+              Invite candidate
+            </Button>
+          )}
+        </div>
       ) : view === "board" ? (
         <div className="mt-4">
           <PipelineBoard candidates={job.candidates} selected={selected} onToggle={toggle} onMove={(candidate, stage) => move.mutate({ candidate, stage })} />

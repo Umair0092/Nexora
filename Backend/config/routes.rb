@@ -57,6 +57,7 @@ Rails.application.routes.draw do
       end
       get "team_invitations/preview", to: "team_invitations#preview"
       post "team_invitations/accept", to: "team_invitations#accept"
+      get "hiring/overview", to: "hiring_overview#show"
       resources :jobs, only: [ :index, :show, :create, :update, :destroy ] do
         post "suggest", on: :collection
         get "compare", on: :member
