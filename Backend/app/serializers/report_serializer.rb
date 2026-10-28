@@ -40,7 +40,7 @@ class ReportSerializer
   def self.share_url(report)
     return nil unless report.shared?
 
-    "#{ENV.fetch('APP_URL', 'http://127.0.0.1:5001').chomp('/')}/shared/#{report.share_token}"
+    ApplicationMailer.app_url("/shared/#{report.share_token}")
   end
 
   def self.answer(answer)

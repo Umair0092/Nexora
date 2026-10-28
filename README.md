@@ -84,6 +84,10 @@ A public ngrok tunnel is opt-in: `docker compose --profile tunnel up`. Anyone wi
 
 The app serves plain HTTP. Set `RAILS_FORCE_SSL=true` only when it sits behind HTTPS; otherwise its HSTS header pins `localhost` to HTTPS in your browser. If that has already happened, clear it at `chrome://net-internals/#hsts` (delete the domain `localhost`).
 
+### On Render
+
+`render.yaml` is a Render Blueprint: in the Render dashboard choose **New → Blueprint**, pick this repo, and fill in `GROQ_API_KEY` and the SMTP settings when asked. It creates the app and a Postgres database; everything (jobs, cache) lives in that one database, and email links use the `onrender.com` address unless you set `APP_URL`. On the free plan the app sleeps after 15 idle minutes (the next visit takes about a minute) and the database expires after 30 days.
+
 ### For development
 
 Needs Node.js 20+, Ruby 4.0 (see Backend/.ruby-version), PostgreSQL 15+ and a free Groq API key (console.groq.com).

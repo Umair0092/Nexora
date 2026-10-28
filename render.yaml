@@ -1,25 +1,55 @@
+# Render Blueprint: New → Blueprint in the Render dashboard, pick this repo.
+# Render asks for the values marked `sync: false` when the Blueprint is created.
 databases:
   - name: nexora-db
     databaseName: nexora_production
     user: nexora
-    plan: free
-    region: frankfurt # Default, can be changed in dashboard
+    plan: free # expires after 30 days; upgrade to keep the data
+    region: frankfurt
 
 services:
   - type: web
-    name: nexora-backend
+    name: nexora
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: free # sleeps after 15 idle minutes; the next visit takes ~1 minute
     region: frankfurt
+    healthCheckPath: /up
     envVars:
-      - key: RAILS_MASTER_KEY
-        sync: false # You must enter this value in the Render Dashboard
-      - key: SECRET_KEY_BASE
-        generateValue: true
-      - key: RAILS_LOG_TO_STDOUT
-        value: "true"
       - key: DATABASE_URL
         fromDatabase:
           name: nexora-db
           property: connectionString
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      # Outgoing email (Brevo, Resend, Gmail, ...). Without SMTP_ADDRESS no
+      # email is sent: invitations, verification and password resets.
+      - key: SMTP_ADDRESS
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # Render terminates HTTPS in front of the app.
+      - key: RAILS_FORCE_SSL
+        value: "true"
+      # Thruster listens on Render's port and passes requests to Puma.
+      - key: HTTP_PORT
+        value: "10000"
+      # Runs background jobs (AI scoring, CV matching, email) inside the web process.
+      - key: SOLID_QUEUE_IN_PUMA
+        value: "true"
+      # AI calls wait on the model for up to a minute, so give Puma enough threads.
+      - key: RAILS_MAX_THREADS
+        value: "10"
+      # Thruster rejects uploads above 20 MB before they reach Rails.
+      - key: MAX_REQUEST_BODY
+        value: "20971520"
