@@ -1,0 +1,6 @@
+<%= @author || "A teammate" %> mentioned you in a note on <%= @candidate.name %> (<%= @candidate.job.title %>):
+
+<%= @note.body.truncate(1000) %>
+
+Open the candidate:
+<%= @url %>

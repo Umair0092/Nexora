@@ -49,6 +49,44 @@ Rails.application.routes.draw do
       end
       get "shared/:token", to: "shares#show", as: :shared_report
 
+      # Hiring: the company side (signed in, must belong to the company).
+      resource :organization, only: [ :show, :create, :update ] do
+        post "invitations", action: :invite
+        delete "invitations/:id", action: :cancel_invitation
+        delete "members/:id", action: :remove_member
+      end
+      get "team_invitations/preview", to: "team_invitations#preview"
+      post "team_invitations/accept", to: "team_invitations#accept"
+      resources :jobs, only: [ :index, :show, :create, :update, :destroy ] do
+        post "suggest", on: :collection
+        get "compare", on: :member
+        resources :candidates, only: [ :create ]
+        resources :emails, only: [ :create ], controller: "candidate_emails"
+      end
+      resources :candidates, only: [ :show, :destroy ] do
+        member do
+          put "scorecard"
+          post "stage"
+          post "resend"
+          post "evaluate"
+          post "match"
+        end
+        resources :notes, only: [ :create, :destroy ], controller: "candidate_notes"
+      end
+      resources :email_templates, only: [ :index, :create, :update, :destroy ]
+
+      # Hiring: the candidate side, through their personal link (no account).
+      scope "apply/:token", controller: "apply", as: "apply" do
+        get "/", action: :show
+        delete "/", action: :withdraw
+        post "consent"
+        post "transcriptions", action: :transcribe
+        post "speech"
+        post "resume"
+        post "answers", action: :answer
+        post "complete"
+      end
+
       resource :profile, only: [ :show, :update, :destroy ], controller: "profile" do
         get "export"
       end

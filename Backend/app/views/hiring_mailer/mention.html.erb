@@ -1,0 +1,3 @@
+<p><%= @author || "A teammate" %> mentioned you in a note on <strong><%= @candidate.name %></strong> (<%= @candidate.job.title %>):</p>
+<blockquote style="border-left:3px solid #ccc;margin:0;padding:4px 12px;color:#444"><%= simple_format(h(@note.body.truncate(1000))) %></blockquote>
+<p><a href="<%= @url %>" class="button">Open <%= @candidate.name %></a></p>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_28_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -50,6 +50,55 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
     t.index ["session_id"], name: "index_answers_on_session_id"
   end
 
+  create_table "candidate_answers", force: :cascade do |t|
+    t.bigint "candidate_id", null: false
+    t.integer "position", null: false
+    t.text "question", null: false
+    t.text "transcript", null: false
+    t.integer "duration_seconds"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_id", "position"], name: "index_candidate_answers_on_candidate_id_and_position", unique: true
+    t.index ["candidate_id"], name: "index_candidate_answers_on_candidate_id"
+  end
+
+  create_table "candidate_notes", force: :cascade do |t|
+    t.bigint "candidate_id", null: false
+    t.bigint "user_id"
+    t.text "body", null: false
+    t.jsonb "mentioned_user_ids", default: [], null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_id"], name: "index_candidate_notes_on_candidate_id"
+    t.index ["user_id"], name: "index_candidate_notes_on_user_id"
+  end
+
+  create_table "candidates", force: :cascade do |t|
+    t.bigint "job_id", null: false
+    t.bigint "invited_by_id"
+    t.string "name", null: false
+    t.string "email", null: false
+    t.string "access_token", null: false
+    t.string "status", default: "invited", null: false
+    t.string "stage"
+    t.datetime "consented_at"
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.string "evaluation_status"
+    t.jsonb "ai_evaluation"
+    t.float "ai_score"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.jsonb "resume_data"
+    t.string "resume_status"
+    t.jsonb "resume_match"
+    t.float "resume_score"
+    t.index ["access_token"], name: "index_candidates_on_access_token", unique: true
+    t.index ["invited_by_id"], name: "index_candidates_on_invited_by_id"
+    t.index ["job_id", "email"], name: "index_candidates_on_job_id_and_email", unique: true
+    t.index ["job_id"], name: "index_candidates_on_job_id"
+  end
+
   create_table "domains", force: :cascade do |t|
     t.string "name"
     t.text "description"
@@ -59,6 +108,30 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
     t.datetime "updated_at", null: false
     t.boolean "internal", default: false, null: false
     t.index ["internal"], name: "index_domains_on_internal"
+  end
+
+  create_table "email_templates", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.string "name", null: false
+    t.string "subject", null: false
+    t.text "body", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id", "name"], name: "index_email_templates_on_organization_id_and_name", unique: true
+    t.index ["organization_id"], name: "index_email_templates_on_organization_id"
+  end
+
+  create_table "hiring_events", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "candidate_id"
+    t.bigint "user_id"
+    t.string "action", null: false
+    t.jsonb "details", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.index ["candidate_id"], name: "index_hiring_events_on_candidate_id"
+    t.index ["organization_id", "created_at"], name: "index_hiring_events_on_organization_id_and_created_at"
+    t.index ["organization_id"], name: "index_hiring_events_on_organization_id"
+    t.index ["user_id"], name: "index_hiring_events_on_user_id"
   end
 
   create_table "interview_sessions", force: :cascade do |t|
@@ -81,6 +154,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
     t.index ["user_id"], name: "index_interview_sessions_on_user_id"
   end
 
+  create_table "jobs", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "created_by_id"
+    t.string "title", null: false
+    t.text "description", default: "", null: false
+    t.jsonb "questions", default: [], null: false
+    t.jsonb "criteria", default: [], null: false
+    t.integer "answer_seconds", default: 120, null: false
+    t.string "status", default: "open", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.boolean "collect_resume", default: true, null: false
+    t.index ["created_by_id"], name: "index_jobs_on_created_by_id"
+    t.index ["organization_id"], name: "index_jobs_on_organization_id"
+  end
+
   create_table "live_interviews", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "kind", null: false
@@ -89,6 +178,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
     t.datetime "updated_at", null: false
     t.index ["updated_at"], name: "index_live_interviews_on_updated_at"
     t.index ["user_id"], name: "index_live_interviews_on_user_id"
+  end
+
+  create_table "memberships", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "user_id", null: false
+    t.string "role", default: "recruiter", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id"], name: "index_memberships_on_organization_id"
+    t.index ["user_id"], name: "index_memberships_on_user_id", unique: true
+  end
+
+  create_table "organizations", force: :cascade do |t|
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
   end
 
   create_table "questions", force: :cascade do |t|
@@ -120,6 +225,32 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
     t.index ["user_id"], name: "index_reports_on_user_id"
   end
 
+  create_table "scorecards", force: :cascade do |t|
+    t.bigint "candidate_id", null: false
+    t.bigint "user_id", null: false
+    t.jsonb "ratings", default: {}, null: false
+    t.text "notes", default: "", null: false
+    t.string "recommendation"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_id", "user_id"], name: "index_scorecards_on_candidate_id_and_user_id", unique: true
+    t.index ["candidate_id"], name: "index_scorecards_on_candidate_id"
+    t.index ["user_id"], name: "index_scorecards_on_user_id"
+  end
+
+  create_table "team_invitations", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "invited_by_id"
+    t.string "email", null: false
+    t.string "role", default: "recruiter", null: false
+    t.datetime "accepted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invited_by_id"], name: "index_team_invitations_on_invited_by_id"
+    t.index ["organization_id", "email"], name: "index_team_invitations_on_organization_id_and_email", unique: true, where: "(accepted_at IS NULL)"
+    t.index ["organization_id"], name: "index_team_invitations_on_organization_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "email", default: "", null: false
     t.string "password_digest", default: "", null: false
@@ -148,10 +279,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_27_120001) do
   add_foreign_key "answer_attempts", "answers", on_delete: :cascade
   add_foreign_key "answers", "interview_sessions", column: "session_id"
   add_foreign_key "answers", "questions"
+  add_foreign_key "candidate_answers", "candidates", on_delete: :cascade
+  add_foreign_key "candidate_notes", "candidates", on_delete: :cascade
+  add_foreign_key "candidate_notes", "users", on_delete: :nullify
+  add_foreign_key "candidates", "jobs", on_delete: :cascade
+  add_foreign_key "candidates", "users", column: "invited_by_id", on_delete: :nullify
+  add_foreign_key "email_templates", "organizations", on_delete: :cascade
+  add_foreign_key "hiring_events", "candidates", on_delete: :cascade
+  add_foreign_key "hiring_events", "organizations", on_delete: :cascade
+  add_foreign_key "hiring_events", "users", on_delete: :nullify
   add_foreign_key "interview_sessions", "domains"
   add_foreign_key "interview_sessions", "users"
+  add_foreign_key "jobs", "organizations", on_delete: :cascade
+  add_foreign_key "jobs", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "live_interviews", "users", on_delete: :cascade
+  add_foreign_key "memberships", "organizations", on_delete: :cascade
+  add_foreign_key "memberships", "users", on_delete: :cascade
   add_foreign_key "questions", "domains"
   add_foreign_key "reports", "interview_sessions", column: "session_id"
   add_foreign_key "reports", "users"
+  add_foreign_key "scorecards", "candidates", on_delete: :cascade
+  add_foreign_key "scorecards", "users", on_delete: :cascade
+  add_foreign_key "team_invitations", "organizations", on_delete: :cascade
+  add_foreign_key "team_invitations", "users", column: "invited_by_id", on_delete: :nullify
 end

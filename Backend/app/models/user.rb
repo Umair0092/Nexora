@@ -9,6 +9,8 @@ class User < ApplicationRecord
   has_many :interview_sessions, dependent: :destroy
   has_many :reports, dependent: :destroy
   has_many :live_interviews, dependent: :delete_all
+  has_one :membership, dependent: :destroy
+  has_one :organization, through: :membership
 
   normalizes :email, with: ->(e) { e.strip.downcase }
 
@@ -62,15 +64,30 @@ class User < ApplicationRecord
   # Deletes the account and everything it owns, including the per-answer
   # questions created for its interviews. In-progress interviews go with it
   # (live_interviews cascades on delete).
+  # A company's last member takes the company (jobs, candidates) with them; an
+  # owner leaving others behind hands ownership to the longest-standing member.
   def destroy_with_data!
     transaction do
       question_ids = Answer.joins(:interview_session).where(interview_sessions: { user_id: id }).pluck(:question_id)
+      hand_over_company
       destroy!
       Question.where(id: question_ids).where.missing(:answers).delete_all
     end
   end
 
   private
+
+  def hand_over_company
+    return unless membership
+
+    org = membership.organization
+    others = org.memberships.where.not(user_id: id).order(:created_at)
+    if others.none?
+      org.destroy!
+    elsif membership.owner? && !others.exists?(role: "owner")
+      others.first.update!(role: "owner")
+    end
+  end
 
   def experience_shape
     return if experience.nil?

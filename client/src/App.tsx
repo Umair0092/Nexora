@@ -25,6 +25,15 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import VerifyEmail from "@/pages/verify-email";
 import Unsubscribe from "@/pages/unsubscribe";
+import ApplyPage from "@/pages/apply";
+import JoinPage from "@/pages/join";
+import HiringHome from "@/pages/hiring/index";
+import HiringTeam from "@/pages/hiring/team";
+import JobForm from "@/pages/hiring/job-form";
+import JobPage from "@/pages/hiring/job";
+import CandidatePage from "@/pages/hiring/candidate";
+import ComparePage from "@/pages/hiring/compare";
+import TemplatesPage from "@/pages/hiring/templates";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const sidebarStyle = {
@@ -70,7 +79,16 @@ const PUBLIC_ROUTES: [string, () => JSX.Element | null][] = [
   ["/reset-password", ResetPassword],
   ["/verify-email", VerifyEmail],
   ["/unsubscribe", Unsubscribe],
+  ["/apply/:token", ApplyPage],
+  ["/join", JoinPage],
 ];
+
+// After signing in, go back to where a link sent you (/auth?next=/join?token=...).
+function AfterSignIn() {
+  const next = new URLSearchParams(window.location.search).get("next");
+  const safe = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  return <Redirect to={safe} />;
+}
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -115,15 +133,21 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/dashboard" component={Dashboard} />
-        <Route path="/auth">
-          <Redirect to="/dashboard" />
-        </Route>
+        <Route path="/auth" component={AfterSignIn} />
         <Route path="/interview/setup" component={InterviewSetup} />
         <Route path="/interview/session/:id" component={InterviewSession} />
         <Route path="/report/:id" component={PerformanceReport} />
         <Route path="/history" component={SessionHistory} />
         <Route path="/profile" component={ProfilePage} />
         <Route path="/account" component={AccountPage} />
+        <Route path="/hiring" component={HiringHome} />
+        <Route path="/hiring/team" component={HiringTeam} />
+        <Route path="/hiring/jobs/new" component={JobForm} />
+        <Route path="/hiring/jobs/:id/edit" component={JobForm} />
+        <Route path="/hiring/jobs/:id/compare" component={ComparePage} />
+        <Route path="/hiring/jobs/:id" component={JobPage} />
+        <Route path="/hiring/templates" component={TemplatesPage} />
+        <Route path="/hiring/candidates/:id" component={CandidatePage} />
         <Route path="/forgot-password">
           <Redirect to="/account" />
         </Route>

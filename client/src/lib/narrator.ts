@@ -4,6 +4,9 @@
 //
 //   const stop = narrate("Tell me about a time...", () => setStatus("recording"));
 //   stop(); // cancels playback; onDone is not called after a stop
+//
+// Candidates have no account, so their audio comes from their own link:
+//   narrate(question, done, { url: `/api/v1/apply/${token}/speech` })
 import { getToken } from "@/lib/api";
 
 // Once the server voice fails, stop asking for it until the page reloads.
@@ -49,7 +52,12 @@ function speakInBrowser(text: string, done: () => void): () => void {
   };
 }
 
-export function narrate(text: string, onDone: () => void = () => {}): () => void {
+export interface NarrateOptions {
+  // Where to fetch the audio. The default endpoint needs a signed-in user.
+  url?: string;
+}
+
+export function narrate(text: string, onDone: () => void = () => {}, { url: source = "/api/v1/speech" }: NarrateOptions = {}): () => void {
   let finished = false;
   let cancelled = false;
   let stopFallback: (() => void) | null = null;
@@ -75,9 +83,10 @@ export function narrate(text: string, onDone: () => void = () => {}): () => void
   if (serverVoiceDown) {
     fallback();
   } else {
-    fetch("/api/v1/speech", {
+    const token = getToken();
+    fetch(source, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken() ?? ""}` },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ text }),
       signal: controller.signal,
     })
