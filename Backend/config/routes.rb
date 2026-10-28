@@ -9,6 +9,10 @@ Rails.application.routes.draw do
     namespace :v1 do
       post "login", to: "auth#login"
       post "register", to: "auth#register"
+      get "auth/providers", to: "google_auth#providers"
+      post "auth/google", to: "google_auth#start"
+      get "auth/google/callback", to: "google_auth#callback"
+      post "auth/google/exchange", to: "google_auth#exchange"
       get "me", to: "auth#user"
 
       post "password/forgot", to: "passwords#forgot"
@@ -64,6 +68,13 @@ Rails.application.routes.draw do
         get "compare", on: :member
         resources :candidates, only: [ :create ]
         resources :emails, only: [ :create ], controller: "candidate_emails"
+      end
+      get "candidates/export", to: "candidate_exports#show"
+      resources :webhooks, only: [ :index, :create, :update, :destroy ], controller: "webhook_endpoints" do
+        member do
+          post "test"
+          post "rotate"
+        end
       end
       resources :candidates, only: [ :show, :destroy ] do
         member do

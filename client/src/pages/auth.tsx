@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
+import { GoogleSignIn } from "@/components/google-sign-in";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,6 +77,8 @@ export default function AuthPage() {
               ? "Sign in to continue where you left off."
               : "It takes a minute. Your first interview can start right after."}
           </p>
+
+          <GoogleSignIn next={new URLSearchParams(window.location.search).get("next")} />
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8 w-full">
             <TabsList className="grid w-full grid-cols-2">

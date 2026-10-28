@@ -1,5 +1,9 @@
 # JSON for the hiring screens, camelCase like the rest of the API.
 module HiringSerializer
+  # Board columns as people read them (the client has the same labels).
+  COLUMN_NAMES = { "invited" => "Invited", "review" => "To review", "shortlisted" => "Shortlisted", "interviewing" => "Interviewing",
+                   "offer" => "Offer", "hired" => "Hired", "rejected" => "Rejected", "withdrawn" => "Withdrew" }.freeze
+
   module_function
 
   def organization(org, membership)

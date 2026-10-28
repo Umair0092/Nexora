@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_120001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_150001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -472,6 +472,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_120001) do
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
 
+  create_table "webhook_deliveries", force: :cascade do |t|
+    t.bigint "webhook_endpoint_id", null: false
+    t.string "event", null: false
+    t.string "delivery_id", null: false
+    t.jsonb "payload", null: false
+    t.integer "status_code"
+    t.string "error"
+    t.integer "attempts", default: 0, null: false
+    t.datetime "delivered_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["delivery_id"], name: "index_webhook_deliveries_on_delivery_id", unique: true
+    t.index ["webhook_endpoint_id", "created_at"], name: "index_webhook_deliveries_on_webhook_endpoint_id_and_created_at"
+    t.index ["webhook_endpoint_id"], name: "index_webhook_deliveries_on_webhook_endpoint_id"
+  end
+
+  create_table "webhook_endpoints", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.string "url", null: false
+    t.text "secret", null: false
+    t.jsonb "events", default: [], null: false
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id"], name: "index_webhook_endpoints_on_organization_id"
+  end
+
   add_foreign_key "answer_attempts", "answers", on_delete: :cascade
   add_foreign_key "answers", "interview_sessions", column: "session_id"
   add_foreign_key "answers", "questions"
@@ -510,4 +537,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_120001) do
   add_foreign_key "solid_queue_scheduled_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "team_invitations", "organizations", on_delete: :cascade
   add_foreign_key "team_invitations", "users", column: "invited_by_id", on_delete: :nullify
+  add_foreign_key "webhook_deliveries", "webhook_endpoints", on_delete: :cascade
+  add_foreign_key "webhook_endpoints", "organizations"
 end
