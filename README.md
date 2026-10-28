@@ -2,6 +2,10 @@
 
 Nexora is a full-stack platform that helps candidates prepare for technical interviews through mock sessions, real-time nonverbal analysis, and AI-driven verbal feedback. It combines computer vision, speech transcription, and large language models to evaluate both what you say and how you present yourself.
 
+<p align="center">
+  <img src="docs/screenshots/demo.gif" width="100%" alt="Nexora walkthrough: landing page, hiring pipeline, candidate review and comparison" />
+</p>
+
 ---
 
 ## Features
@@ -22,6 +26,23 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 - **Share links** — A read-only public link to a report that you can turn off at any time
 - **Hiring (for companies)** — Create a company and invite teammates; set up jobs with fixed screening questions (drafted from the job description) and scoring criteria; send candidates a personal link to answer out loud, without an account; review transcripts with an advisory AI summary and score them on team scorecards; move candidates through a pipeline board (To review, Shortlisted, Interviewing, Offer, Hired, Rejected); match optional CVs against the job; compare 2–4 candidates side by side; leave notes that @mention teammates; email candidates in bulk from templates. No camera and no judging of delivery or accent; candidates consent first and can withdraw and delete their answers; every view and decision is logged
 - **Account** — Password reset and email confirmation by email, data export (JSON) and account deletion
+
+---
+
+## Screenshots
+
+<p align="center"><img src="docs/screenshots/landing.jpg" alt="Landing page" width="100%" /></p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/report-section.jpg" alt="Scored interview feedback" /><p align="center"><sub>Per-answer scores with what worked and what to change</sub></p></td>
+    <td width="50%"><img src="docs/screenshots/job.jpg" alt="Hiring pipeline board" /><p align="center"><sub>Hiring pipeline with AI, team and CV-match scores</sub></p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/candidate.jpg" alt="Candidate review" /><p align="center"><sub>Candidate review: transcripts, advisory AI summary and scorecards</sub></p></td>
+    <td width="50%"><img src="docs/screenshots/compare.jpg" alt="Candidate comparison" /><p align="center"><sub>Compare 2 to 4 candidates on the same questions</sub></p></td>
+  </tr>
+</table>
 
 ---
 
