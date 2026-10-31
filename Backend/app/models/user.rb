@@ -2,6 +2,7 @@ class User < ApplicationRecord
   MAX_EXPERIENCE_ENTRIES = 20
   EXPERIENCE_FIELDS = %w[title company duration description].freeze
 
+  ACCOUNT_TYPES = %w[candidate employer].freeze
   MAX_WEEKLY_GOAL = 14
   REMINDER_GAP = 3.days
 
@@ -35,6 +36,8 @@ class User < ApplicationRecord
   validates :password, length: { minimum: 8 }, if: -> { new_record? || password.present? }
   validates :first_name, :last_name, length: { maximum: 50 }
   validates :bio, length: { maximum: 2000 }
+  validates :account_type, inclusion: { in: ACCOUNT_TYPES, message: "must be candidate or employer" }
+  validate :stays_employer_while_on_a_team
   validates :weekly_goal, numericality: { only_integer: true, in: 1..MAX_WEEKLY_GOAL }
   validate :experience_shape
 
@@ -49,6 +52,10 @@ class User < ApplicationRecord
       .where("users.last_reminded_at IS NULL OR users.last_reminded_at <= ?", cutoff)
       .where.not(recent_practice.arel.exists)
   }
+
+  def employer?
+    account_type == "employer"
+  end
 
   def email_verified?
     email_verified_at.present?
@@ -88,6 +95,12 @@ class User < ApplicationRecord
     elsif membership.owner? && !others.exists?(role: "owner")
       others.first.update!(role: "owner")
     end
+  end
+
+  def stays_employer_while_on_a_team
+    return unless will_save_change_to_account_type? && !employer? && membership
+
+    errors.add(:account_type, "can't change while you're on a company's hiring team")
   end
 
   def experience_shape

@@ -3,6 +3,7 @@ class UserSerializer
     {
       id: user.id,
       email: user.email,
+      accountType: user.account_type,
       firstName: user.first_name,
       lastName: user.last_name,
       profileImageUrl: user.profile_image_url,

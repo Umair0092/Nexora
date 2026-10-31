@@ -49,7 +49,7 @@ module Api
         raw = params.require(:user)
         permitted = raw.permit(
           :first_name, :last_name, :firstName, :lastName, :bio,
-          :reminders_enabled, :remindersEnabled, :weekly_goal, :weeklyGoal,
+          :reminders_enabled, :remindersEnabled, :weekly_goal, :weeklyGoal, :accountType, :account_type,
           skills: [], experience: [ :title, :company, :duration, :description ]
         )
 
@@ -63,6 +63,8 @@ module Api
         attrs[:reminders_enabled] = ActiveModel::Type::Boolean.new.cast(reminders) || false if permitted.key?(:remindersEnabled) || permitted.key?(:reminders_enabled)
         goal = permitted.key?(:weeklyGoal) ? permitted[:weeklyGoal] : permitted[:weekly_goal]
         attrs[:weekly_goal] = goal if permitted.key?(:weeklyGoal) || permitted.key?(:weekly_goal)
+        account_type = permitted.key?(:accountType) ? permitted[:accountType] : permitted[:account_type]
+        attrs[:account_type] = account_type if permitted.key?(:accountType) || permitted.key?(:account_type)
         attrs[:skills] = Array(permitted[:skills]).map { |s| s.to_s.strip.truncate(100) }.reject(&:blank?).uniq.first(50) if permitted.key?(:skills)
         attrs[:experience] = experience_param(raw) if raw.key?(:experience)
         attrs

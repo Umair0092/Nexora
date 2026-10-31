@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { CheckCircle2, Download, Loader2, Minus, Plus, Trash2 } from "lucide-react";
+import { ArrowLeftRight, CheckCircle2, Download, Loader2, Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth, useSwitchWorkspace } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { api, errorMessage, getToken, setToken } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
@@ -40,6 +40,7 @@ function Section({ id, title, hint, children }: { id: string; title: string; hin
 export default function AccountPage() {
   const { user } = useAuth();
   const { data: org } = useOrganization();
+  const switchWorkspace = useSwitchWorkspace();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [goal, setGoal] = useState(3);
@@ -102,11 +103,12 @@ export default function AccountPage() {
 
   if (!user) return null;
   const goalChanged = goal !== user.weeklyGoal;
+  const hiring = user.accountType === "employer";
 
   return (
     <div className="mx-auto max-w-4xl px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:py-10">
       <h1 className="text-3xl font-bold sm:text-4xl">Account</h1>
-      <p className="mt-2 text-muted-foreground">Email, practice reminders and your data.</p>
+      <p className="mt-2 text-muted-foreground">{hiring ? "Email, calendar and your data." : "Email, practice reminders and your data."}</p>
 
       <div className="mt-10 space-y-10">
         <Section id="email-heading" title="Email" hint="Used for sign-in, password resets and reminders.">
@@ -129,57 +131,84 @@ export default function AccountPage() {
           </div>
         </Section>
 
-        <Section id="practice-heading" title="Practice" hint="A small, steady habit beats cramming before an interview.">
+        <Section id="workspace-heading" title="Workspace" hint="Practising for interviews and hiring are kept apart.">
           <div className="rounded-xl border bg-card p-4 sm:p-5">
-            <Label htmlFor="weekly-goal" className="text-base font-semibold">Weekly goal</Label>
-            <p className="mt-1 text-sm text-muted-foreground">Interviews to finish each week, Monday to Sunday.</p>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <div className="flex items-center rounded-lg border">
-                <Button variant="ghost" size="icon" aria-label="One fewer" onClick={() => setGoal((g) => Math.max(1, g - 1))} disabled={goal <= 1}>
-                  <Minus />
-                </Button>
-                <Input
-                  id="weekly-goal"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={MAX_GOAL}
-                  value={goal}
-                  onChange={(e) => setGoal(Math.min(MAX_GOAL, Math.max(1, Number(e.target.value) || 1)))}
-                  className="h-10 w-16 border-0 text-center font-display text-lg font-semibold tabular-nums shadow-none focus-visible:ring-0"
-                />
-                <Button variant="ghost" size="icon" aria-label="One more" onClick={() => setGoal((g) => Math.min(MAX_GOAL, g + 1))} disabled={goal >= MAX_GOAL}>
-                  <Plus />
-                </Button>
-              </div>
-              <span className="text-sm text-muted-foreground">{goal === 1 ? "interview" : "interviews"} a week</span>
-              {goalChanged && (
-                <Button size="sm" onClick={() => saveSettings.mutate({ weeklyGoal: goal })} disabled={saveSettings.isPending}>
-                  Save goal
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-start justify-between gap-4 rounded-xl border bg-card p-4 sm:p-5">
-            <div>
-              <Label htmlFor="reminders" className="text-base font-semibold">Email reminders</Label>
-              <p id="reminders-hint" className="mt-1 text-sm text-muted-foreground">
-                {user.emailVerified
-                  ? "One email when you haven't practised for 3 days. Never more often than that."
-                  : "Confirm your email first to turn on reminders."}
-              </p>
-            </div>
-            <Switch
-              id="reminders"
-              aria-describedby="reminders-hint"
-              checked={user.remindersEnabled}
-              disabled={!user.emailVerified || saveSettings.isPending}
-              onCheckedChange={(checked) => saveSettings.mutate({ remindersEnabled: checked })}
-              data-testid="switch-reminders"
-            />
+            <p className="font-semibold">{hiring ? "Hiring" : "Interview practice"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {!hiring
+                ? "Hiring for a company? Switch to the hiring workspace to post jobs and screen candidates. Your practice interviews stay saved."
+                : org
+                  ? `You're on ${org.name}'s hiring team. To practise interviews yourself, use a separate account.`
+                  : "This account is set up for hiring. You can switch back to interview practice until you create or join a company."}
+            </p>
+            {!(hiring && org) && (
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={() => switchWorkspace.mutate(hiring ? "candidate" : "employer")}
+                disabled={switchWorkspace.isPending}
+                data-testid="button-switch-workspace"
+              >
+                {switchWorkspace.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />}
+                {hiring ? "Switch to interview practice" : "Switch to hiring"}
+              </Button>
+            )}
           </div>
         </Section>
+
+        {!hiring && (
+          <Section id="practice-heading" title="Practice" hint="A small, steady habit beats cramming before an interview.">
+            <div className="rounded-xl border bg-card p-4 sm:p-5">
+              <Label htmlFor="weekly-goal" className="text-base font-semibold">Weekly goal</Label>
+              <p className="mt-1 text-sm text-muted-foreground">Interviews to finish each week, Monday to Sunday.</p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="flex items-center rounded-lg border">
+                  <Button variant="ghost" size="icon" aria-label="One fewer" onClick={() => setGoal((g) => Math.max(1, g - 1))} disabled={goal <= 1}>
+                    <Minus />
+                  </Button>
+                  <Input
+                    id="weekly-goal"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={MAX_GOAL}
+                    value={goal}
+                    onChange={(e) => setGoal(Math.min(MAX_GOAL, Math.max(1, Number(e.target.value) || 1)))}
+                    className="h-10 w-16 border-0 text-center font-display text-lg font-semibold tabular-nums shadow-none focus-visible:ring-0"
+                  />
+                  <Button variant="ghost" size="icon" aria-label="One more" onClick={() => setGoal((g) => Math.min(MAX_GOAL, g + 1))} disabled={goal >= MAX_GOAL}>
+                    <Plus />
+                  </Button>
+                </div>
+                <span className="text-sm text-muted-foreground">{goal === 1 ? "interview" : "interviews"} a week</span>
+                {goalChanged && (
+                  <Button size="sm" onClick={() => saveSettings.mutate({ weeklyGoal: goal })} disabled={saveSettings.isPending}>
+                    Save goal
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-xl border bg-card p-4 sm:p-5">
+              <div>
+                <Label htmlFor="reminders" className="text-base font-semibold">Email reminders</Label>
+                <p id="reminders-hint" className="mt-1 text-sm text-muted-foreground">
+                  {user.emailVerified
+                    ? "One email when you haven't practised for 3 days. Never more often than that."
+                    : "Confirm your email first to turn on reminders."}
+                </p>
+              </div>
+              <Switch
+                id="reminders"
+                aria-describedby="reminders-hint"
+                checked={user.remindersEnabled}
+                disabled={!user.emailVerified || saveSettings.isPending}
+                onCheckedChange={(checked) => saveSettings.mutate({ remindersEnabled: checked })}
+                data-testid="switch-reminders"
+              />
+            </div>
+          </Section>
+        )}
 
         {org && (
           <Section id="calendar" title="Calendar" hint="For live interviews with candidates.">
@@ -199,7 +228,8 @@ export default function AccountPage() {
           <div className="rounded-xl border border-destructive/40 bg-card p-4 sm:p-5">
             <p className="font-semibold">Delete account</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Permanently removes your account, profile, every interview and report, and any share links. This can't be undone.
+              Permanently removes your account, profile, every interview and report, and any share links.
+              {org && ` If you're the last person on ${org.name}'s team, the company, its jobs and its candidates go too.`} This can't be undone.
             </p>
             <Button variant="destructive" className="mt-4" onClick={() => setConfirmDelete(true)} data-testid="button-delete-account">
               <Trash2 />

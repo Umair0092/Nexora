@@ -10,7 +10,7 @@ export default function NotFound() {
         We couldn't find it either. The link may be out of date, or the page has moved.
       </p>
       <Button asChild className="mt-8">
-        <Link href="/dashboard">Go to overview</Link>
+        <Link href="/">Go to your home page</Link>
       </Button>
     </div>
   );

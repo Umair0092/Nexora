@@ -1,7 +1,7 @@
 require "test_helper"
 
 class AuthTest < ActionDispatch::IntegrationTest
-  USER_KEYS = %w[id email firstName lastName profileImageUrl bio skills experience resumeUrl emailVerified remindersEnabled weeklyGoal].freeze
+  USER_KEYS = %w[id email accountType firstName lastName profileImageUrl bio skills experience resumeUrl emailVerified remindersEnabled weeklyGoal].freeze
 
   test "register returns token and camelCase user" do
     post "/api/v1/register", params: { email: "  New@Example.COM ", password: "password123", first_name: "Ada", last_name: "Lovelace" }, as: :json

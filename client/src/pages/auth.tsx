@@ -6,17 +6,60 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
+import { Briefcase, Loader2, Mic } from "lucide-react";
+import { OptionCard, OptionGroup } from "@/components/option-card";
+import type { AccountType } from "@/lib/types";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const MIN_PASSWORD = 8;
 
+// ?as=employer, or a link into hiring (an invitation, "Set up your hiring team"), starts on the hiring side.
+function initialAccountType(params: URLSearchParams): AccountType {
+  const next = params.get("next") ?? "";
+  return params.get("as") === "employer" || next.startsWith("/hiring") || next.startsWith("/join") ? "employer" : "candidate";
+}
+
+function PracticeStory() {
+  return (
+    <figure className="max-w-lg">
+      <div className="mb-6 flex items-center gap-3 text-sm text-[hsl(216_33%_95%/.7)]">
+        <span className="tally-light" aria-hidden="true" />
+        Question 3 of 10
+      </div>
+      <blockquote className="cue-card text-4xl xl:text-5xl">
+        "You mentioned migrating the payments service. What would you do differently if you did it again?"
+      </blockquote>
+      <figcaption className="mt-6 max-w-sm text-[hsl(216_33%_95%/.7)]">
+        Nexora reads your CV and asks the follow-up a real interviewer would. Answer out loud, then see what landed.
+      </figcaption>
+    </figure>
+  );
+}
+
+function HiringStory() {
+  return (
+    <figure className="max-w-lg">
+      <div className="mb-6 flex items-center gap-3 text-sm text-[hsl(216_33%_95%/.7)]">
+        <span className="h-2 w-2 rounded-full bg-[hsl(174_61%_45%)]" aria-hidden="true" />
+        Interview minutes, Backend Engineer
+      </div>
+      <blockquote className="cue-card text-4xl xl:text-5xl">
+        "Strong on API design and on-call experience. Follow-up: Daniel sends the system design task by Friday."
+      </blockquote>
+      <figcaption className="mt-6 max-w-sm text-[hsl(216_33%_95%/.7)]">
+        Post a job, screen every candidate with the same spoken questions, and let the notetaker write up your live interviews.
+      </figcaption>
+    </figure>
+  );
+}
+
 export default function AuthPage() {
   const { loginMutation, registerMutation } = useAuth();
-  const [activeTab, setActiveTab] = useState(() =>
-    new URLSearchParams(window.location.search).get("mode") === "register" ? "register" : "login",
-  );
+  const params = new URLSearchParams(window.location.search);
+  const [activeTab, setActiveTab] = useState(() => (params.get("mode") === "register" ? "register" : "login"));
+  const [accountType, setAccountType] = useState<AccountType>(() => initialAccountType(params));
+  const hiring = accountType === "employer";
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -38,6 +81,7 @@ export default function AuthPage() {
       password: registerPassword,
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      account_type: accountType,
     });
   };
 
@@ -45,21 +89,12 @@ export default function AuthPage() {
     <div className="grid min-h-screen bg-background lg:grid-cols-[1.1fr_1fr]">
       <aside className="relative hidden flex-col justify-between overflow-hidden bg-[hsl(224_48%_16%)] p-12 text-[hsl(216_33%_95%)] lg:flex">
         <Link href="/" aria-label="Nexora home" className="[&_.text-muted-foreground]:text-[hsl(216_33%_95%/.6)]">
-          <Brand subtitle="Interview rehearsal" />
+          <Brand subtitle={hiring ? "Hiring" : "Interview rehearsal"} />
         </Link>
-        <figure className="max-w-lg">
-          <div className="mb-6 flex items-center gap-3 text-sm text-[hsl(216_33%_95%/.7)]">
-            <span className="tally-light" aria-hidden="true" />
-            Question 3 of 10
-          </div>
-          <blockquote className="cue-card text-4xl xl:text-5xl">
-            "You mentioned migrating the payments service. What would you do differently if you did it again?"
-          </blockquote>
-          <figcaption className="mt-6 max-w-sm text-[hsl(216_33%_95%/.7)]">
-            Nexora reads your CV and asks the follow-up a real interviewer would. Answer out loud, then see what landed.
-          </figcaption>
-        </figure>
-        <p className="text-sm text-[hsl(216_33%_95%/.5)]">Practice in English, Urdu, French or Spanish.</p>
+        {hiring ? <HiringStory /> : <PracticeStory />}
+        <p className="text-sm text-[hsl(216_33%_95%/.5)]">
+          {hiring ? "Candidates answer in English, Urdu, French or Spanish." : "Practice in English, Urdu, French or Spanish."}
+        </p>
       </aside>
 
       <div className="flex flex-col px-4 py-6 sm:px-8">
@@ -75,10 +110,12 @@ export default function AuthPage() {
           <p className="mt-2 text-muted-foreground">
             {activeTab === "login"
               ? "Sign in to continue where you left off."
-              : "It takes a minute. Your first interview can start right after."}
+              : hiring
+                ? "It takes a minute. Then add your company and post your first job."
+                : "It takes a minute. Your first interview can start right after."}
           </p>
 
-          <GoogleSignIn next={new URLSearchParams(window.location.search).get("next")} />
+          <GoogleSignIn next={params.get("next")} accountType={accountType} />
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8 w-full">
             <TabsList className="grid w-full grid-cols-2">
@@ -126,6 +163,26 @@ export default function AuthPage() {
 
             <TabsContent value="register" className="mt-6">
               <form onSubmit={handleRegister} className="space-y-4">
+                <OptionGroup label="What will you use Nexora for?" className="grid gap-2">
+                  <OptionCard
+                    selected={!hiring}
+                    onSelect={() => setAccountType("candidate")}
+                    icon={<Mic />}
+                    title="Practising for interviews"
+                    description="Mock interviews from your CV, with feedback."
+                    className="p-3 sm:p-3"
+                    testId="option-account-candidate"
+                  />
+                  <OptionCard
+                    selected={hiring}
+                    onSelect={() => setAccountType("employer")}
+                    icon={<Briefcase />}
+                    title="Hiring for a company"
+                    description="Jobs, candidates and interviews for your team."
+                    className="p-3 sm:p-3"
+                    testId="option-account-employer"
+                  />
+                </OptionGroup>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="first-name">First name</Label>

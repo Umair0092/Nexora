@@ -7,9 +7,13 @@ export interface Experience {
   description?: string;
 }
 
+// Candidates practise interviews; employers run hiring. Each has its own workspace.
+export type AccountType = "candidate" | "employer";
+
 export interface User {
   id: number;
   email: string;
+  accountType: AccountType;
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;

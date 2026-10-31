@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { api, errorMessage } from "@/lib/api";
+import type { AccountType } from "@/lib/types";
 
 function GoogleMark() {
   return (
@@ -16,8 +17,8 @@ function GoogleMark() {
   );
 }
 
-/** "Continue with Google", shown only when the server has Google sign-in set up. */
-export function GoogleSignIn({ next }: { next?: string | null }) {
+/** "Continue with Google", shown only when the server has Google sign-in set up. A new account gets `accountType`. */
+export function GoogleSignIn({ next, accountType = "candidate" }: { next?: string | null; accountType?: AccountType }) {
   const { toast } = useToast();
   const { data } = useQuery<{ google: boolean }>({ queryKey: ["/api/v1/auth/providers"], staleTime: Infinity });
 
@@ -28,7 +29,7 @@ export function GoogleSignIn({ next }: { next?: string | null }) {
   }, [toast]);
 
   const start = useMutation({
-    mutationFn: () => api<{ url: string }>("/api/v1/auth/google", { method: "POST", body: { next: next ?? "/" } }),
+    mutationFn: () => api<{ url: string }>("/api/v1/auth/google", { method: "POST", body: { next: next ?? "/", accountType } }),
     onSuccess: ({ url }) => window.location.assign(url),
     onError: (error) => toast({ title: "Couldn't reach Google", description: errorMessage(error), variant: "destructive" }),
   });

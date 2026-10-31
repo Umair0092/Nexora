@@ -159,7 +159,7 @@ class IntegrationsTest < ActionDispatch::IntegrationTest
       get "/api/v1/auth/providers"
       assert json["google"]
 
-      post "/api/v1/auth/google", params: { next: "/hiring" }, as: :json
+      post "/api/v1/auth/google", params: { next: "/hiring", accountType: "employer" }, as: :json
       state = Rack::Utils.parse_query(URI(json["url"]).query)["state"]
       tokens = { "id_token" => id_token(email: "New.Person@Gmail.com", email_verified: true, aud: "client-123", given_name: "New", family_name: "Person") }
       GoogleCalendar.stub(:request, ->(*, **) { tokens }) do
@@ -173,6 +173,7 @@ class IntegrationsTest < ActionDispatch::IntegrationTest
       assert_response :ok
       user = User.find_by(email: "new.person@gmail.com")
       assert user.email_verified_at
+      assert user.employer?, "a new account takes the type chosen on the sign-up page"
       assert_equal user.id, JsonWebToken.decode(json["token"])[:user_id]
     end
   end

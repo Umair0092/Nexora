@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, Redirect, Link, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -14,7 +15,8 @@ import AuthPage from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
-import { useOrganization } from "@/lib/hiring";
+import SwitchToHiring from "@/pages/switch-to-hiring";
+import type { AccountType } from "@/lib/types";
 import InterviewSetup from "@/pages/interview-setup";
 import InterviewSession from "@/pages/interview-session";
 import PerformanceReport from "@/pages/performance-report";
@@ -42,7 +44,15 @@ import CandidatePage from "@/pages/hiring/candidate";
 import ComparePage from "@/pages/hiring/compare";
 import TemplatesPage from "@/pages/hiring/templates";
 
-function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
+function AuthenticatedLayout({ workspace, children }: { workspace: AccountType; children: React.ReactNode }) {
+  // On <html> so the mobile sidebar, which renders in a portal, picks up the workspace's colours too.
+  useEffect(() => {
+    document.documentElement.dataset.workspace = workspace;
+    return () => {
+      delete document.documentElement.dataset.workspace;
+    };
+  }, [workspace]);
+
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
@@ -57,14 +67,24 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
       <div className="flex min-h-screen w-full">
-        <AppSidebar />
+        <AppSidebar workspace={workspace} />
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-40 flex h-14 print:hidden items-center justify-between gap-4 border-b bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-4">
             <div className="flex items-center gap-2">
               <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle navigation" />
-              <Link href="/" className="md:hidden" aria-label="Nexora home">
+              <Link href="/" className="md:hidden" aria-label={workspace === "employer" ? "Hiring home" : "Practice home"}>
                 <BrandMark className="h-7 w-7" />
               </Link>
+              <span
+                className={
+                  workspace === "employer"
+                    ? "rounded-full bg-[hsl(224_48%_16%)] px-2.5 py-0.5 text-xs font-semibold text-[hsl(216_33%_95%)] ring-1 ring-inset ring-[hsl(174_61%_45%/.5)]"
+                    : "rounded-full bg-accent px-2.5 py-0.5 text-xs font-semibold text-accent-foreground"
+                }
+                data-testid="text-workspace"
+              >
+                {workspace === "employer" ? "Hiring workspace" : "Interview practice"}
+              </span>
             </div>
             <ThemeToggle />
           </header>
@@ -98,15 +118,72 @@ function AfterSignIn() {
   return <Redirect to={safe} />;
 }
 
-// People on a hiring team start on Hiring; everyone else on their practice overview.
-function Home() {
-  const { data: org, isLoading } = useOrganization();
-  if (isLoading) return null;
-  return org ? <Redirect to="/hiring" replace /> : <Dashboard />;
+// Candidates practise interviews; employers run hiring. The two never share a
+// workspace: each has its own navigation, and the other's pages aren't routed.
+function PracticeWorkspace() {
+  return (
+    <AuthenticatedLayout workspace="candidate">
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/dashboard" component={Dashboard} />
+        <Route path="/auth" component={AfterSignIn} />
+        <Route path="/interview/setup" component={InterviewSetup} />
+        <Route path="/interview/session/:id" component={InterviewSession} />
+        <Route path="/report/:id" component={PerformanceReport} />
+        <Route path="/history" component={SessionHistory} />
+        <Route path="/profile" component={ProfilePage} />
+        <Route path="/account" component={AccountPage} />
+        <Route path="/hiring/*?" component={SwitchToHiring} />
+        <Route path="/forgot-password">
+          <Redirect to="/account" />
+        </Route>
+        <Route component={NotFound} />
+      </Switch>
+    </AuthenticatedLayout>
+  );
+}
+
+const PRACTICE_PATHS = ["/dashboard", "/interview/*?", "/report/*?", "/history", "/profile"];
+
+function HiringWorkspace() {
+  return (
+    <AuthenticatedLayout workspace="employer">
+      <Switch>
+        <Route path="/">
+          <Redirect to="/hiring" replace />
+        </Route>
+        <Route path="/auth" component={AfterSignIn} />
+        <Route path="/account" component={AccountPage} />
+        <Route path="/hiring" component={HiringHome} />
+        <Route path="/hiring/team" component={HiringTeam} />
+        <Route path="/hiring/jobs/new" component={JobForm} />
+        <Route path="/hiring/jobs/:id/edit" component={JobForm} />
+        <Route path="/hiring/jobs/:id/compare" component={ComparePage} />
+        <Route path="/hiring/jobs/:id" component={JobPage} />
+        <Route path="/hiring/templates" component={TemplatesPage} />
+        <Route path="/hiring/candidates/:id" component={CandidatePage} />
+        <Route path="/hiring/meetings/:id" component={MeetingPage} />
+        <Route path="/hiring/analytics" component={AnalyticsPage} />
+        <Route path="/hiring/integrations" component={IntegrationsPage} />
+        <Route path="/hiring/billing" component={BillingPage} />
+        <Route path="/hiring/privacy" component={PrivacyPage} />
+        {/* Practice links (old bookmarks, emails) land on the hiring home rather than a 404. */}
+        {PRACTICE_PATHS.map((path) => (
+          <Route key={path} path={path}>
+            <Redirect to="/hiring" replace />
+          </Route>
+        ))}
+        <Route path="/forgot-password">
+          <Redirect to="/account" />
+        </Route>
+        <Route component={NotFound} />
+      </Switch>
+    </AuthenticatedLayout>
+  );
 }
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const [location] = useLocation();
 
   if (isLoading) {
@@ -143,38 +220,7 @@ function Router() {
     );
   }
 
-  return (
-    <AuthenticatedLayout>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/auth" component={AfterSignIn} />
-        <Route path="/interview/setup" component={InterviewSetup} />
-        <Route path="/interview/session/:id" component={InterviewSession} />
-        <Route path="/report/:id" component={PerformanceReport} />
-        <Route path="/history" component={SessionHistory} />
-        <Route path="/profile" component={ProfilePage} />
-        <Route path="/account" component={AccountPage} />
-        <Route path="/hiring" component={HiringHome} />
-        <Route path="/hiring/team" component={HiringTeam} />
-        <Route path="/hiring/jobs/new" component={JobForm} />
-        <Route path="/hiring/jobs/:id/edit" component={JobForm} />
-        <Route path="/hiring/jobs/:id/compare" component={ComparePage} />
-        <Route path="/hiring/jobs/:id" component={JobPage} />
-        <Route path="/hiring/templates" component={TemplatesPage} />
-        <Route path="/hiring/candidates/:id" component={CandidatePage} />
-        <Route path="/hiring/meetings/:id" component={MeetingPage} />
-        <Route path="/hiring/analytics" component={AnalyticsPage} />
-        <Route path="/hiring/integrations" component={IntegrationsPage} />
-        <Route path="/hiring/billing" component={BillingPage} />
-        <Route path="/hiring/privacy" component={PrivacyPage} />
-        <Route path="/forgot-password">
-          <Redirect to="/account" />
-        </Route>
-        <Route component={NotFound} />
-      </Switch>
-    </AuthenticatedLayout>
-  );
+  return user?.accountType === "employer" ? <HiringWorkspace /> : <PracticeWorkspace />;
 }
 
 function App() {

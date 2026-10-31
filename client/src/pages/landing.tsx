@@ -285,7 +285,7 @@ export default function Landing() {
                 })}
               </ul>
               <Button asChild size="lg" variant="outline" className="mt-8" data-testid="button-cta-teams">
-                <Link href="/auth?mode=register&next=/hiring">Set up your hiring team</Link>
+                <Link href="/auth?mode=register&as=employer">Set up your hiring team</Link>
               </Button>
             </div>
             <BoardPreview />
