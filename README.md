@@ -6,6 +6,8 @@ Nexora is a full-stack platform that helps candidates prepare for technical inte
 
 ## Features
 
+Nexora has two separate workspaces, chosen when you sign up: **interview practice** for candidates and **hiring** for companies. Each has its own dashboard and navigation, and a practice account can switch to hiring from Account settings (until it creates or joins a company).
+
 - **Mock Interviews** — Domain-specific sessions (Data Science, ML, Software Engineering, etc.) with configurable difficulty and question count
 - **Resume Parsing** — Upload a PDF resume; Nexora extracts your background and generates tailored interview questions
 - **AI Answer Evaluation** — Each response is scored 0–100 with detailed strengths, weaknesses, and feedback powered by an LLM on Groq (gpt-oss-120b by default; any OpenAI-compatible provider works)

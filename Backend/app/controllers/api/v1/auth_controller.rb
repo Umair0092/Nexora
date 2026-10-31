@@ -51,12 +51,13 @@ module Api
       end
 
       def user_params
-        permitted = params.permit(:email, :password, :first_name, :last_name, :firstName, :lastName)
+        permitted = params.permit(:email, :password, :first_name, :last_name, :firstName, :lastName, :accountType, :account_type)
         {
           email: permitted[:email],
           password: permitted[:password],
           first_name: permitted[:first_name] || permitted[:firstName],
-          last_name: permitted[:last_name] || permitted[:lastName]
+          last_name: permitted[:last_name] || permitted[:lastName],
+          account_type: (permitted[:account_type] || permitted[:accountType]).presence || "candidate"
         }
       end
     end

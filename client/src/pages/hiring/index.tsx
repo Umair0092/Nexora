@@ -25,7 +25,7 @@ function CreateCompany() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6 lg:py-16">
       <Briefcase className="h-10 w-10 text-primary" aria-hidden="true" />
-      <h1 className="mt-5 text-3xl font-bold sm:text-4xl">Screen candidates with Nexora</h1>
+      <h1 className="mt-5 text-3xl font-bold sm:text-4xl">Add your company to start hiring</h1>
       <p className="mt-3 text-lg text-muted-foreground">
         Set up a job with the questions you want answered, send candidates a link, and review their spoken answers with your team.
       </p>

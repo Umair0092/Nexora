@@ -18,6 +18,7 @@ import { LayoutDashboard, Mic, History, UserRound, Settings, LogOut, Briefcase, 
 import { Brand } from "@/components/brand";
 import { displayName } from "@/lib/types";
 import { useOrganization } from "@/lib/hiring";
+import type { AccountType } from "@/lib/types";
 
 interface Item {
   title: string;
@@ -29,6 +30,9 @@ interface Item {
 const hiringItems: Item[] = [
   { title: "Jobs and candidates", url: "/hiring", icon: Briefcase, testId: "hiring" },
   { title: "Analytics", url: "/hiring/analytics", icon: BarChart3, testId: "hiring-analytics" },
+];
+
+const companyItems: Item[] = [
   { title: "Team", url: "/hiring/team", icon: Users, testId: "hiring-team" },
   { title: "Email templates", url: "/hiring/templates", icon: Mail, testId: "hiring-templates" },
   { title: "Integrations", url: "/hiring/integrations", icon: Plug, testId: "hiring-integrations" },
@@ -42,12 +46,11 @@ const practiceItems: Item[] = [
   { title: "Past interviews", url: "/history", icon: History, testId: "session-history" },
 ];
 
-const accountItems: Item[] = [
-  { title: "Profile", url: "/profile", icon: UserRound, testId: "profile" },
-  { title: "Account", url: "/account", icon: Settings, testId: "account" },
-];
+const profileItem: Item = { title: "Profile", url: "/profile", icon: UserRound, testId: "profile" };
+const accountItem: Item = { title: "Account", url: "/account", icon: Settings, testId: "account" };
 
-const OWN_HIRING_PAGES = ["/hiring/team", "/hiring/templates", "/hiring/analytics", "/hiring/integrations", "/hiring/billing", "/hiring/privacy"];
+// Hiring pages with their own nav entry; every other /hiring/... page belongs under "Jobs and candidates".
+const OWN_HIRING_PAGES = [...hiringItems, ...companyItems].map((i) => i.url).filter((url) => url !== "/hiring");
 
 function isActive(item: Item, location: string) {
   if (location === item.url) return true;
@@ -56,12 +59,45 @@ function isActive(item: Item, location: string) {
   return location.startsWith(item.url + "/");
 }
 
-export function AppSidebar() {
+export function AppSidebar({ workspace }: { workspace: AccountType }) {
+  return workspace === "employer" ? <HiringSidebar /> : <PracticeSidebar />;
+}
+
+function PracticeSidebar() {
+  return (
+    <WorkspaceSidebar home="/dashboard" subtitle="Interview practice">
+      {(nav) => (
+        <>
+          <NavGroup label="Practice" items={practiceItems} {...nav} />
+          <NavGroup label="You" items={[profileItem, accountItem]} {...nav} />
+        </>
+      )}
+    </WorkspaceSidebar>
+  );
+}
+
+// Before the company exists there's only the page that creates it.
+function HiringSidebar() {
+  const { data: org } = useOrganization();
+  return (
+    <WorkspaceSidebar home="/hiring" subtitle={org ? org.name : "Hiring"}>
+      {(nav) => (
+        <>
+          <NavGroup label="Hiring" items={org ? hiringItems : hiringItems.slice(0, 1)} {...nav} />
+          {org && <NavGroup label="Company" items={companyItems} {...nav} />}
+          <NavGroup label="You" items={[accountItem]} {...nav} />
+        </>
+      )}
+    </WorkspaceSidebar>
+  );
+}
+
+type Nav = { location: string; onNavigate: () => void };
+
+function WorkspaceSidebar({ home, subtitle, children }: { home: string; subtitle: string; children: (nav: Nav) => React.ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const { setOpenMobile } = useSidebar();
-  const { data: org } = useOrganization();
-  const hasCompany = !!org;
   const close = () => setOpenMobile(false);
   const name = displayName(user);
   const initials = (user?.firstName?.[0] ?? "") + (user?.lastName?.[0] ?? "") || name.charAt(0).toUpperCase() || "U";
@@ -69,25 +105,12 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="px-4 pb-2 pt-5">
-        <Link href={hasCompany ? "/hiring" : "/dashboard"} onClick={close} aria-label="Nexora home">
-          <Brand subtitle={org ? org.name : "Interview practice"} />
+        <Link href={home} onClick={close} aria-label="Nexora home">
+          <Brand subtitle={subtitle} />
         </Link>
       </SidebarHeader>
 
-      <SidebarContent>
-        {hasCompany ? (
-          <>
-            <NavGroup label="Hiring" items={hiringItems} location={location} onNavigate={close} />
-            <NavGroup label="Practice" items={practiceItems} location={location} onNavigate={close} />
-          </>
-        ) : (
-          <>
-            <NavGroup label="Practice" items={practiceItems} location={location} onNavigate={close} />
-            <NavGroup label="For companies" items={hiringItems.slice(0, 1).map((i) => ({ ...i, title: "Hire with Nexora" }))} location={location} onNavigate={close} />
-          </>
-        )}
-        <NavGroup label="You" items={accountItems} location={location} onNavigate={close} />
-      </SidebarContent>
+      <SidebarContent>{children({ location, onNavigate: close })}</SidebarContent>
 
       <SidebarFooter className="border-t p-3">
         <div className="flex items-center gap-3 rounded-lg p-2">

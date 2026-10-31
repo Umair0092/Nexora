@@ -98,6 +98,35 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
+/* The hiring workspace is a different room: an ink sidebar in both themes, so a
+   recruiter never mistakes it for the candidate's practice space. */
+[data-workspace="employer"] {
+  --sidebar: 224 48% 16%;
+  --sidebar-foreground: 216 33% 95%;
+  --sidebar-border: 224 36% 24%;
+  --sidebar-primary: 174 61% 45%;
+  --sidebar-primary-foreground: 223 49% 9%;
+  --sidebar-accent: 224 40% 23%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-ring: 174 61% 45%;
+}
+
+.dark[data-workspace="employer"] {
+  --sidebar: 225 55% 6%;
+  --sidebar-border: 223 40% 14%;
+  --sidebar-accent: 224 40% 15%;
+}
+
+/* Text and fills inside that sidebar read against ink, not paper. */
+[data-workspace="employer"] [data-sidebar="sidebar"] {
+  --muted-foreground: 218 24% 72%;
+  --border: var(--sidebar-border);
+  --accent: 174 40% 24%;
+  --accent-foreground: 174 61% 85%;
+  --primary: 174 61% 45%;
+  --primary-foreground: 223 49% 9%;
+}
+
 .dark {
   --button-outline: hsl(216 33% 95% / .14);
   --badge-outline: hsl(216 33% 95% / .08);

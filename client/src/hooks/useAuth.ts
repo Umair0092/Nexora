@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getToken, setToken, setUnauthorizedHandler, errorMessage } from "@/lib/api";
-import type { User } from "@/lib/types";
+import type { AccountType, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 
 const ME_KEY = ["/api/v1/me"];
@@ -50,11 +50,14 @@ export function useAuth() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: (details: { email: string; password: string; first_name: string; last_name: string }) =>
+    mutationFn: (details: { email: string; password: string; first_name: string; last_name: string; account_type: AccountType }) =>
       api<AuthResponse>("/api/v1/register", { method: "POST", body: details }),
     onSuccess: (data) => {
       signedIn(data);
-      toast({ title: "Account created", description: "Your first practice interview is one click away." });
+      toast({
+        title: "Account created",
+        description: data.user.accountType === "employer" ? "Add your company to start hiring." : "Your first practice interview is one click away.",
+      });
     },
     onError: (error) => {
       toast({ title: "Couldn't create your account", description: errorMessage(error), variant: "destructive" });
@@ -77,4 +80,18 @@ export function useAuth() {
     signedIn,
     logout,
   };
+}
+
+/** Moves the account to the other workspace. The app re-renders into it as soon as /me updates. */
+export function useSwitchWorkspace() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: (accountType: AccountType) => api<User>("/api/v1/profile", { method: "PUT", body: { user: { accountType } } }),
+    onSuccess: (user) => {
+      queryClient.setQueryData(ME_KEY, user);
+      toast({ title: user.accountType === "employer" ? "Switched to hiring" : "Switched to interview practice" });
+    },
+    onError: (error) => toast({ title: "Couldn't switch", description: errorMessage(error), variant: "destructive" }),
+  });
 }

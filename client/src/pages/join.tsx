@@ -21,8 +21,10 @@ export default function JoinPage() {
   });
   const accept = useMutation({
     mutationFn: () => api<Organization>("/api/v1/team_invitations/accept", { method: "POST", body: { token } }),
-    onSuccess: (org) => {
+    onSuccess: async (org) => {
       queryClient.setQueryData(["/api/v1/organization"], org);
+      // Joining turns the account into a hiring account, which changes the whole workspace.
+      await queryClient.refetchQueries({ queryKey: ["/api/v1/me"] });
       setLocation("/hiring");
     },
   });
@@ -59,7 +61,7 @@ export default function JoinPage() {
             <Link href={`/auth?next=${next}`}>Sign in to join</Link>
           </Button>
           <Button asChild size="lg" variant="outline">
-            <Link href={`/auth?mode=register&next=${next}`}>Create an account</Link>
+            <Link href={`/auth?mode=register&as=employer&next=${next}`}>Create an account</Link>
           </Button>
         </div>
       ) : user.email !== invite.email ? (
@@ -68,6 +70,12 @@ export default function JoinPage() {
         </p>
       ) : (
         <>
+          {user.accountType === "candidate" && (
+            <p className="mb-4 rounded-xl bg-muted p-4 text-sm">
+              This account is set up for interview practice. Joining turns it into a hiring account, so you'll see {invite.company}'s
+              hiring workspace instead. Your past practice interviews stay saved.
+            </p>
+          )}
           {accept.isError && <p className="mb-4 text-sm text-destructive" role="alert">{errorMessage(accept.error)}</p>}
           <Button size="lg" className="w-full" onClick={() => accept.mutate()} disabled={accept.isPending} data-testid="button-accept-invite">
             {accept.isPending && <Loader2 className="animate-spin" />}

@@ -3,7 +3,7 @@ module Api
     # Sign in with Google.
     #
     #   GET  /api/v1/auth/providers         -> { google: true|false }
-    #   POST /api/v1/auth/google            { next } -> { url }; sets a short-lived browser cookie
+    #   POST /api/v1/auth/google            { next, accountType } -> { url }; sets a short-lived browser cookie
     #   GET  /api/v1/auth/google/callback   (Google redirects here) -> /auth/google#code=...
     #   POST /api/v1/auth/google/exchange   { code } -> { token, user }
     #
@@ -30,7 +30,9 @@ module Api
 
         nonce = SecureRandom.hex(16)
         cookies.encrypted[COOKIE] = { value: nonce, expires: 10.minutes, httponly: true, same_site: :lax, secure: request.ssl? }
-        state = verifier.generate({ "nonce" => nonce, "next" => safe_next(params[:next]) }, expires_in: 10.minutes, purpose: :google_sign_in)
+        account_type = User::ACCOUNT_TYPES.include?(params[:accountType]) ? params[:accountType] : "candidate"
+        state = verifier.generate({ "nonce" => nonce, "next" => safe_next(params[:next]), "account_type" => account_type },
+                                  expires_in: 10.minutes, purpose: :google_sign_in)
         render json: { url: GoogleSignIn.authorize_url(state: state) }
       end
 
@@ -40,7 +42,7 @@ module Api
         cookies.delete(COOKIE)
         return redirect_to("/auth?error=google") unless state && nonce.present? && ActiveSupport::SecurityUtils.secure_compare(state["nonce"], nonce)
 
-        user = find_or_create(GoogleSignIn.profile(code: params[:code].to_s))
+        user = find_or_create(GoogleSignIn.profile(code: params[:code].to_s), account_type: state["account_type"] || "candidate")
         code = verifier.generate({ "user" => user.id, "jti" => user.jti }, expires_in: CODE_TTL, purpose: :google_code)
         redirect_to "/auth/google##{{ code: code, next: state['next'] }.to_query}"
       rescue GoogleCalendar::Error, ActiveRecord::RecordInvalid
@@ -57,11 +59,13 @@ module Api
 
       private
 
-      # Existing accounts are matched by email; a new one is verified already, since Google confirmed it.
-      def find_or_create(profile)
+      # Existing accounts are matched by email and keep their type; a new one is
+      # verified already, since Google confirmed it.
+      def find_or_create(profile, account_type:)
         user = User.find_by(email: profile[:email]) || User.create!(email: profile[:email], password: SecureRandom.base58(32),
                                                                     first_name: profile[:first_name].presence,
                                                                     last_name: profile[:last_name].presence,
+                                                                    account_type: account_type,
                                                                     email_verified_at: Time.current)
         user.update!(email_verified_at: Time.current) unless user.email_verified_at
         user.update!(jti: SecureRandom.uuid) if user.jti.blank?
